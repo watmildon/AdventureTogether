@@ -2,7 +2,8 @@
  * Builds a quest's `validation_rules` from the host builder's form, following the
  * per-type contract the backend matchers read (see documentation/api_reference.md):
  *
- *   osm_tags           {required_tags, target_count, require_hashtag, radius_m (point targets only)}
+ *   osm_tags           {required_tags, target_count, require_hashtag, radius_m (point targets only),
+ *                       action (only when not "any")}
  *   wikimedia_commons  {category?, target_count}
  *   wikidata_entry     {target_count}
  *   wikidata_statement {qid, properties, target_count}
@@ -18,6 +19,10 @@
 
 import type { CriteriaType } from '../api'
 
+/** Which osm_tags edits count: added or updated, newly created elements, or updates only. */
+export type OsmAction = 'any' | 'create' | 'modify'
+const OSM_ACTIONS: OsmAction[] = ['any', 'create', 'modify']
+
 export interface TagRow {
   key: string
   /** A literal value, or "*" (or blank) for "any value". */
@@ -31,6 +36,8 @@ export interface RuleForm {
   /** Matching radius around a point target for osm_tags. */
   osmRadiusM: number
   requireHashtag: boolean
+  /** osm_tags `action`; 'any' is the backend default and is left out of the rules. */
+  osmAction: OsmAction
   category: string
   qid: string
   /** Comma- or space-separated property ids, e.g. "P84, P571". */
@@ -53,6 +60,7 @@ export function defaultRuleForm(): RuleForm {
     targetCount: 1,
     osmRadiusM: 300,
     requireHashtag: true,
+    osmAction: 'any',
     category: '',
     qid: '',
     properties: '',
@@ -95,7 +103,8 @@ export function composeValidationRules(
         target_count,
         require_hashtag: form.requireHashtag,
         // The radius only means something around a point target
-        ...(hasPointTarget ? { radius_m: positiveInt(form.osmRadiusM, 300) } : {})
+        ...(hasPointTarget ? { radius_m: positiveInt(form.osmRadiusM, 300) } : {}),
+        ...(form.osmAction !== 'any' ? { action: form.osmAction } : {})
       }
     case 'wikimedia_commons':
       return form.category.trim() ? { category: form.category.trim(), target_count } : { target_count }
@@ -127,7 +136,7 @@ export function composeValidationRules(
 
 /** The validation_rules keys the builder form models, per type. Anything else is kept as is on edit. */
 export const MODELLED_RULE_KEYS: Record<CriteriaType, string[]> = {
-  osm_tags: ['required_tags', 'target_count', 'require_hashtag', 'radius_m'],
+  osm_tags: ['required_tags', 'target_count', 'require_hashtag', 'radius_m', 'action'],
   wikimedia_commons: ['category', 'target_count'],
   wikidata_entry: ['target_count'],
   wikidata_statement: ['qid', 'properties', 'target_count'],
@@ -168,6 +177,8 @@ export function rulesToForm(type: CriteriaType, rules: Record<string, any> | nul
       form.osmTags = objectToTags(r.required_tags)
       form.requireHashtag = r.require_hashtag !== false
       form.osmRadiusM = numberOr(r.radius_m, form.osmRadiusM)
+      // Unknown actions are treated as 'any' by the harvester
+      form.osmAction = OSM_ACTIONS.includes(r.action) ? r.action : 'any'
       break
     case 'ohm_feature':
       form.ohmTags = objectToTags(r.required_tags)

@@ -161,7 +161,7 @@ To find codes, open the schedule on pretalx (the code is the last part of a talk
 
 The repo ships the event file and a snapshot of the pretalx export (127 sessions) so seeding works offline:
 
-- `backend/fixtures/foss4gna_2026.json`: event, 22 quests, one demo team
+- `backend/fixtures/foss4gna_2026.json`: event, 23 quests, one demo team
 - `backend/fixtures/foss4gna_2026_schedule.json`: schedule export from `https://talks.osgeo.org/foss4g-na-2026/schedule/export/schedule.json`
 
 Native (from `backend/`, with the virtualenv active and migrations applied):

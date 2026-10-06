@@ -22,6 +22,20 @@ describe('composeValidationRules', () => {
       radius_m: 300
     })
     expect(composeValidationRules('osm_tags', form, false)).not.toHaveProperty('radius_m')
+    expect(composeValidationRules('osm_tags', form, false)).not.toHaveProperty('action')
+  })
+
+  it('osm_tags: action only when it is not the default "any"', () => {
+    const form = { ...defaultRuleForm(), osmAction: 'create' as const }
+    expect(composeValidationRules('osm_tags', form, false)).toEqual({
+      required_tags: { amenity: 'restaurant', opening_hours: '*' },
+      target_count: 1,
+      require_hashtag: true,
+      action: 'create'
+    })
+    expect(composeValidationRules('osm_tags', { ...form, osmAction: 'modify' }, false).action).toBe('modify')
+    // ohm_feature does not model it
+    expect(composeValidationRules('ohm_feature', form, false)).not.toHaveProperty('action')
   })
 
   it('wikimedia_commons: category only when given', () => {
@@ -102,6 +116,8 @@ describe('rulesToForm (inverse of composeValidationRules)', () => {
   const cases: [CriteriaType, Record<string, any>, boolean][] = [
     ['osm_tags', { required_tags: { amenity: 'restaurant|cafe', opening_hours: '*' }, target_count: 5, require_hashtag: true }, false],
     ['osm_tags', { required_tags: { architect: '*', wikidata: '*' }, target_count: 1, require_hashtag: false, radius_m: 120 }, true],
+    ['osm_tags', { required_tags: { emergency: 'fire_hydrant|defibrillator' }, target_count: 3, require_hashtag: true, action: 'create' }, false],
+    ['osm_tags', { required_tags: { highway: 'crossing', kerb: '*' }, target_count: 5, require_hashtag: true, action: 'modify' }, false],
     ['wikimedia_commons', { category: 'Capitol Park (Sacramento)', target_count: 4 }, false],
     ['wikimedia_commons', { target_count: 1 }, true],
     ['wikidata_entry', { target_count: 2 }, true],
@@ -137,6 +153,8 @@ describe('rulesToForm (inverse of composeValidationRules)', () => {
     expect(form.targetCount).toBe(1)
     expect(form.requireHashtag).toBe(true)
     expect(form.osmRadiusM).toBe(300)
+    expect(form.osmAction).toBe('any')
+    expect(rulesToForm('osm_tags', { action: 'delete' }).osmAction).toBe('any')
     expect(rulesToForm('oss_contribution', null).kinds).toEqual({ pr: true, issue: true })
     expect(rulesToForm('location_checkin', { radius_m: 'x' }).checkinRadiusM).toBe(50)
   })
@@ -152,5 +170,7 @@ describe('rulesToForm (inverse of composeValidationRules)', () => {
   it('unmodelledRules returns only the keys the form does not edit', () => {
     expect(unmodelledRules('osm_notes', { target_count: 1, status: 'closed' })).toEqual({ status: 'closed' })
     expect(unmodelledRules('location_checkin', { radius_m: 5, min_minutes: 0 })).toEqual({})
+    // action is modelled for osm_tags, so changing it in the form is not undone on save
+    expect(unmodelledRules('osm_tags', { action: 'create', note: 'x' })).toEqual({ note: 'x' })
   })
 })

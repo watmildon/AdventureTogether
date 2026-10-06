@@ -178,7 +178,8 @@ class OverpassHarvesterTests(TestCase):
         apis = FakeApis([CAFE_NODE, CAFE_WAY, OTHER_NODE])
         stats = self.run_harvest(apis)
 
-        self.assertEqual(stats['osm'], {'harvested': 1, 'created': 1, 'updated': 0, 'matched': 1, 'errors': 0})
+        self.assertEqual(stats['osm'], {'harvested': 1, 'created': 1, 'updated': 0, 'matched': 1, 'errors': 0,
+                                        'history_lookups': 0})
         self.assertEqual(stats['summary']['created'], 1)
         sub = Submission.objects.get(platform='osm')
         self.assertEqual(sub.external_id, f'5001/q{self.quest.id}')

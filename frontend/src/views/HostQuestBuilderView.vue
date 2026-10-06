@@ -530,6 +530,17 @@ onUnmounted(() => {
             <label class="form-label" for="osmRadius">Match radius around the target (m)</label>
             <input id="osmRadius" v-model.number="rules.osmRadiusM" type="number" min="1" class="form-input" />
           </div>
+          <div class="form-group">
+            <label class="form-label" for="osmAction">Counts</label>
+            <select id="osmAction" v-model="rules.osmAction" class="form-select">
+              <option value="any">Any edit (added or updated)</option>
+              <option value="create">Newly created only</option>
+              <option value="modify">Updates to existing only</option>
+            </select>
+            <p class="field-hint">
+              Newly created elements are credited to whoever added them, even if someone edits them later.
+            </p>
+          </div>
           <label class="checkbox-row">
             <input v-model="rules.requireHashtag" type="checkbox" />
             Require the event hashtag on the changeset

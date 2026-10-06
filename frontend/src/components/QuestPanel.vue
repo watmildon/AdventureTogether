@@ -54,7 +54,9 @@ const allCards = computed(() =>
       percent: Math.min(100, Math.round((count / Math.max(target, 1)) * 100)),
       checkin: props.checkins[quest.id],
       doable: canDoQuest(quest.criteria_type, props.tools),
-      needs: toolsNeededText(quest.criteria_type)
+      needs: toolsNeededText(quest.criteria_type),
+      // osm_tags quests with action "create" only count elements the participant adds
+      newOnly: quest.criteria_type === 'osm_tags' && quest.validation_rules?.action === 'create'
     }
   })
 )
@@ -121,7 +123,7 @@ const hiddenCount = computed(() => allCards.value.length - cards.value.length)
           </p>
 
           <div class="quest-actions">
-            <span class="help-app">Use: {{ card.type.helpApp }}</span>
+            <span class="help-app">Use: {{ card.type.helpApp }}{{ card.newOnly ? ' · new elements only' : '' }}</span>
             <button
               v-if="card.quest.target_geometry"
               type="button"

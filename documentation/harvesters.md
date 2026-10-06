@@ -82,7 +82,9 @@ The submission's `external_id` is `{changeset}/q{quest}`, `element_count` is the
 }
 ```
 
-**Limitation:** Overpass only reports the latest version of each element. If someone else edits an element after a participant, the element moves to the later changeset and the participant's changeset loses it on the next harvest. A submission's `element_count` never decreases, though, so credit that has already been harvested is kept.
+**Limitation:** Overpass only reports the latest version of each element. If someone else edits an element after a participant, the element moves to the later changeset and the participant's changeset loses it on the next harvest. A submission's `element_count` never decreases, though, so credit that has already been harvested is kept. Quests that count newly created elements (`"action": "create"`, see 2.4) do not have this problem.
+
+A quest with `"action": "modify"` drops elements whose current version is 1 before grouping, so only updates to elements that already existed count.
 
 ### 2.1 Changeset hashtag convention
 
@@ -113,6 +115,22 @@ The endpoint must support `newer:` and `out meta`; any standard Overpass API doe
 | Changeset API | `OSM_API_BASE` | `OHM_API_BASE` |
 | Submission URL | `https://www.openstreetmap.org/changeset/{id}` | `https://www.openhistoricalmap.org/changeset/{id}` |
 | Default `required_tags` | none | `{"start_date": "*"}` |
+
+### 2.4 New elements: history lookups
+
+A quest with `"action": "create"` credits the user and changeset that **created** each element, so it needs the element's version 1, which Overpass does not return once the element has been edited. The Overpass query is the same (an element created in the window was necessarily last edited in it too); then, per distinct element:
+
+1. **Current version 1:** the element's own `user`, `changeset` and `timestamp` are its creation. No extra call.
+2. **Version above 1, already tracked for this quest, and the version is not above `last_seen_version`:** the stored creation info is reused. No extra call.
+3. **Otherwise** (unknown element, or its version has gone up): one `GET {OSM_API_BASE}/{type}/{id}/history.json`, and version 1's `user`, `changeset` and `timestamp` are taken from it. The same element is fetched at most once per run, however many quests match it.
+
+What the harvester learns is stored in `TrackedOsmElement` (one row per quest and element): `last_seen_version`, `created_at_osm`, `creator_username`, `creation_changeset`, `last_editor_username` and `last_checked`. The version and last editor are refreshed on every run. A dry run may still call the history API but writes no rows.
+
+The element qualifies when `created_at_osm` is inside the event window and the quest window, and the creating changeset carries the hashtag (checked with the same cached changeset lookup, and skipped when `require_hashtag` is `false`). Qualifying elements are grouped by creating changeset into one submission each (`{changeset}/q{quest}`), credited to the creator, with `contributed_at` the creation time and `element_count` the number of elements that changeset created. Each element in `diff_payload` carries version 1's `version`, `user` and `timestamp`, plus `current_version`.
+
+So the first run after a participant adds ten hydrants costs nothing extra (they are all at version 1). Each later edit by anyone costs one history call on the next run, and nothing after that until the element changes again. The count is reported as `history_lookups` in the platform's stats (section 7). A failed lookup is counted under `errors`, writes no row, and is retried on the next run.
+
+An element that is deleted after being created no longer appears in Overpass, so it stops counting toward new submissions; credit already harvested is kept.
 
 ---
 
@@ -208,7 +226,7 @@ python manage.py harvest_event 1 --dry-run  # make every fetch, write nothing, l
   "event": 1,
   "found": true,
   "dry_run": false,
-  "osm":       {"harvested": 3, "created": 1, "updated": 1, "matched": 2, "errors": 0},
+  "osm":       {"harvested": 3, "created": 1, "updated": 1, "matched": 2, "errors": 0, "history_lookups": 2},
   "osm_notes": {"harvested": 1, "created": 1, "updated": 0, "matched": 0, "errors": 0},
   "github":    {"harvested": 0, "created": 0, "updated": 0, "matched": 0, "errors": 1},
   "summary":   {"harvested": 4, "created": 2, "updated": 1, "matched": 2, "errors": 1},
@@ -220,6 +238,7 @@ python manage.py harvest_event 1 --dry-run  # make every fetch, write nothing, l
 - `created` / `updated`: submissions written. In a dry run, the number that would have been written.
 - `matched`: created or updated submissions that were credited to a team.
 - `errors`: failed external calls. A failure in one platform never stops the others.
+- `history_lookups` (`osm` and `ohm` only): element history requests made for `"action": "create"` quests (section 2.4). It is not added to `summary`.
 - `warnings`: non-error conditions, e.g. `OVERPASS_URL is not configured; skipped osm_tags quests`.
 
 Only platforms that ran appear as keys. A dry run adds `"would_submit": [{"platform", "external_id", "author", "element_count", "quest", "team", "action"}]`.
@@ -232,4 +251,5 @@ Only platforms that ran appear as keys. A dry run adds `"would_submit": [{"platf
 - Every request has a timeout: 30 s for REST APIs, 90 s HTTP and `[timeout:60]` server-side for Overpass.
 - Queries are bounded: Overpass by area, `newer:`, and tags; Notes by bbox and `limit=100`; MediaWiki searches by `srlimit=50`; revisions by `rvstart`/`rvend` and `rvlimit`; GitHub by `created:>=` and `per_page=100`.
 - OSM changeset metadata is fetched once per run and cached for 24 h once the changeset is closed.
+- Element history is fetched only for `"action": "create"` quests, at most once per element per run, and again only when the element's version goes up (section 2.4). Watch `history_lookups` in the stats.
 - On a 5-minute schedule an event with N `osm_tags` quests makes N Overpass queries per run. Keep N modest, or lengthen the schedule interval for very large events.

@@ -161,3 +161,73 @@ class QuestProgress(models.Model):
 
     def __str__(self):
         return f"{self.team.name}: {self.quest.title} ({self.count}/{self.quest.target_count})"
+
+
+class TrackedOsmElement(models.Model):
+    """
+    What the harvester has learned about one OSM element for one `osm_tags` quest with
+    `"action": "create"`.
+
+    Overpass only returns an element's current version, so who created the element, and when,
+    comes from its version 1: read from the Overpass result when the current version is 1, and
+    otherwise from the OSM history API. Version 1 never changes, so it is stored here and the
+    history API is only asked again when the element's version goes past last_seen_version.
+    """
+    ELEMENT_TYPES = [
+        ('node', 'Node'),
+        ('way', 'Way'),
+        ('relation', 'Relation'),
+    ]
+
+    quest = models.ForeignKey(
+        Quest,
+        on_delete=models.CASCADE,
+        related_name='tracked_osm_elements',
+        help_text="Quest the element was matched for."
+    )
+    element_type = models.CharField(
+        max_length=8,
+        choices=ELEMENT_TYPES,
+        help_text="OSM element type."
+    )
+    element_id = models.BigIntegerField(
+        help_text="OSM element id."
+    )
+    last_seen_version = models.PositiveIntegerField(
+        default=1,
+        help_text="Highest element version seen by the harvester; a higher one triggers a new history lookup."
+    )
+    created_at_osm = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp of version 1 (null when the history did not include it)."
+    )
+    creator_username = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text="User who created the element (version 1)."
+    )
+    creation_changeset = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Changeset that created the element (version 1)."
+    )
+    last_editor_username = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text="User who made the latest version seen."
+    )
+    last_checked = models.DateTimeField(
+        auto_now=True,
+        help_text="When the harvester last saw the element."
+    )
+
+    class Meta:
+        unique_together = ('quest', 'element_type', 'element_id')
+        verbose_name = 'Tracked OSM Element'
+        verbose_name_plural = 'Tracked OSM Elements'
+
+    def __str__(self):
+        return f"{self.element_type}/{self.element_id} v{self.last_seen_version} for quest {self.quest_id}"

@@ -49,10 +49,21 @@ Credits a team when one of its mappers' changesets left OSM elements in the targ
 | `target_count` | int | 1 | Distinct matching elements needed, summed across the team's changesets. |
 | `radius_m` | number | 300 | Search radius around the target. Only used when `target_geometry` is a Point. |
 | `require_hashtag` | bool | `true` | Require the event hashtag on the changeset (`hashtags` tag or `#tag` in the comment). |
+| `action` | string | `"any"` | Which edits count: `"any"` (added or updated), `"create"` (newly created elements only), or `"modify"` (updates to existing elements only). See below. |
 
 **Evidence.** One submission per (changeset, quest). `element_count` is the number of distinct matching elements in that changeset. `diff_payload` holds the changeset (`id`, `user`, `created_at`, `comment`, `hashtags`) and the matched elements (`type`, `id`, `version`, `user`, `timestamp`, `lat`, `lon`, `tags`).
 
 **Credit.** The changeset's `user` is matched against `osm_username`.
+
+**`action`.** The required tags and the area are always checked against the element as it is now. `action` decides which edit earns the credit:
+
+- `"any"` (the default): the element's current version was made inside the window, in a hashtagged changeset. Credit goes to whoever made that version.
+- `"modify"`: as `"any"`, but only for elements whose current version is above 1, so newly created elements do not count.
+- `"create"`: the element was **created** inside the window (its version 1 is timestamped inside the event and quest windows), and the changeset that created it carries the hashtag (unless `require_hashtag` is `false`). Credit goes to the creator, even if someone else has edited the element since. Submissions are grouped by the creating changeset: `external_id` `{changeset}/q{quest}`, `element_count` the number of elements it created, `contributed_at` the creation time, and each element in `diff_payload` describes version 1 (`version`, `user`, `timestamp`) plus its `current_version`.
+
+Overpass only returns an element's current version. For `"create"` quests, an element still at version 1 is its own creation record. For any other version, the harvester asks the OSM history API once and stores version 1's user, changeset and time in a `TrackedOsmElement` row; it asks again only when the element's version goes up. See [harvesters.md](harvesters.md#24-new-elements-history-lookups).
+
+Caveat: Overpass does not return deleted elements, so an element created during the event and later deleted no longer counts toward new submissions. Credit already harvested is kept, because a submission's `element_count` never decreases.
 
 ```json
 {
@@ -68,6 +79,25 @@ Credits a team when one of its mappers' changesets left OSM elements in the targ
   "points_reward": 40
 }
 ```
+
+A `"create"` quest that only counts newly added hydrants and public defibrillators:
+
+```json
+{
+  "title": "Emergency ready",
+  "description": "Add three missing fire hydrants or public defibrillators to OSM as new points. Use EveryDoor or the OSM web editor, with #FOSS4GNA2026 in the changeset comment.",
+  "criteria_type": "osm_tags",
+  "target_geometry": null,
+  "validation_rules": {
+    "required_tags": {"emergency": "fire_hydrant|defibrillator"},
+    "action": "create",
+    "target_count": 3
+  },
+  "points_reward": 35
+}
+```
+
+A participant who adds a hydrant on Tuesday is credited for it even if another mapper adds `colour=red` to it on Wednesday. Adding `fire_hydrant:type=pillar` to a hydrant that was already on the map does not count; use `"any"` or `"modify"` for quests like that.
 
 ---
 
@@ -107,6 +137,7 @@ Works like `osm_tags`, but on OpenHistoricalMap.
 | `target_count` | int | 1 | Distinct matching features needed. |
 | `radius_m` | number | 300 | Point targets only. |
 | `require_hashtag` | bool | `true` | As for `osm_tags`. |
+| `action` | string | `"any"` | As for `osm_tags`; history lookups go to `OHM_API_BASE`. |
 
 **Evidence.** The same as `osm_tags`, with links to `openhistoricalmap.org/changeset/{id}`.
 

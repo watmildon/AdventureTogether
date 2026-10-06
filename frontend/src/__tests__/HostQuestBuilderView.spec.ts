@@ -119,6 +119,40 @@ describe('HostQuestBuilderView', () => {
     expect(payload.window_start).toBeNull()
   })
 
+  it('adds action to osm_tags rules when "Counts" is not "Any edit"', async () => {
+    const wrapper = await mountBuilder()
+    const options = wrapper.findAll('#osmAction option')
+    expect(options.map((option) => option.text())).toEqual([
+      'Any edit (added or updated)',
+      'Newly created only',
+      'Updates to existing only'
+    ])
+    expect((wrapper.find('#osmAction').element as HTMLSelectElement).value).toBe('any')
+
+    await wrapper.find('#questTitle').setValue('Emergency ready')
+    await wrapper.find('#questDesc').setValue('Add hydrants and AEDs.')
+    await wrapper.findAll('.tag-key')[0].setValue('emergency')
+    await wrapper.findAll('.tag-value')[0].setValue('fire_hydrant|defibrillator')
+    await wrapper.findAll('.btn-icon')[1].trigger('click')
+    await wrapper.find('#osmAction').setValue('create')
+    await wrapper.find('#targetCount').setValue(3)
+    await wrapper.find('.btn-primary.btn-block').trigger('click')
+    await flushPromises()
+
+    expect(api.createQuest.mock.calls[0][0].validation_rules).toEqual({
+      required_tags: { emergency: 'fire_hydrant|defibrillator' },
+      target_count: 3,
+      require_hashtag: true,
+      action: 'create'
+    })
+  })
+
+  it('hides the Counts select for other quest types', async () => {
+    const wrapper = await mountBuilder()
+    await wrapper.find('#criteriaType').setValue('ohm_feature')
+    expect(wrapper.find('#osmAction').exists()).toBe(false)
+  })
+
   it('composes wikidata_statement rules and blocks saving without a valid item', async () => {
     const wrapper = await mountBuilder()
     await wrapper.find('#questTitle').setValue('Fill in the architect')
@@ -240,6 +274,22 @@ describe('HostQuestBuilderView', () => {
 
     const editButton = (wrapper: any, title: string) =>
       wrapper.findAll('.quest-item').find((item: any) => item.text().includes(title))!.find('.edit-btn')
+
+    it('loads and changes the osm_tags action', async () => {
+      api.getQuests.mockResolvedValue([{ ...structuredClone(lockItUp), validation_rules: { ...lockItUp.validation_rules, action: 'create' } }])
+      const wrapper = await mountBuilder()
+      await editButton(wrapper, 'Lock it up').trigger('click')
+      expect((wrapper.find('#osmAction').element as HTMLSelectElement).value).toBe('create')
+
+      await wrapper.find('#osmAction').setValue('any')
+      await wrapper.find('.save-btn').trigger('click')
+      await flushPromises()
+      expect(api.updateQuest.mock.calls[0][1].validation_rules).toEqual({
+        required_tags: { amenity: 'bicycle_parking', capacity: '*' },
+        target_count: 10,
+        require_hashtag: true
+      })
+    })
 
     it('populates the form from the quest', async () => {
       const wrapper = await mountBuilder()

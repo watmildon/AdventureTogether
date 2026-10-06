@@ -327,6 +327,27 @@
       }
     },
     {
+      "title": "Emergency ready",
+      "description": "When minutes count, responders and neighbours need to find the nearest fire hydrant or public defibrillator (AED). Survey the hunt area and add three that are missing from OpenStreetMap as new points tagged emergency=fire_hydrant or emergency=defibrillator. Use EveryDoor or the OSM web editor, and put #FOSS4GNA2026 in the changeset comment so the hunt can credit your team; only newly added points count.",
+      "criteria_type": "osm_tags",
+      "validation_rules": {
+        "required_tags": {
+          "emergency": "fire_hydrant|defibrillator"
+        },
+        "action": "create",
+        "target_count": 3,
+        "require_hashtag": true
+      },
+      "target_geometry": null,
+      "points_reward": 35,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "NYKALL"
+      }
+    },
+    {
       "title": "Close a Note",
       "description": "Pick an open OpenStreetMap Note inside the hunt area (openstreetmap.org, Map Data layer, or the notes overlay in iD), check it on the ground, fix the map, and resolve the note with #FOSS4GNA2026 in your closing comment.",
       "criteria_type": "osm_notes",

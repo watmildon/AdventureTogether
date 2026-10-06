@@ -118,6 +118,14 @@ describe('QuestPanel with team progress', () => {
     expect(verified.findAll('.quest-card')[1].text()).toContain('✓ Checked in')
   })
 
+  it('notes "new elements only" on osm_tags quests that count created elements', () => {
+    const created = quest({ id: 21, title: 'Emergency ready', validation_rules: { action: 'create' } })
+    const wrapper = mount(QuestPanel, { props: { quests: [created, quests[0]] } })
+    const cards = wrapper.findAll('.quest-card')
+    expect(cards[0].find('.help-app').text()).toBe('Use: StreetComplete / EveryDoor · new elements only')
+    expect(cards[1].find('.help-app').text()).not.toContain('new elements only')
+  })
+
   it('emits show-on-map with the quest', async () => {
     const wrapper = mount(QuestPanel, { props: { quests } })
     await wrapper.findAll('.show-btn')[0].trigger('click')
