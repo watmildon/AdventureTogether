@@ -20,6 +20,7 @@ const team = { id: 4, event: 1, name: 'Organisers', join_code: 'ORG123', score: 
 const router = createRouter({
   history: createMemoryHistory(),
   routes: [
+    { path: '/', component: { template: '<div>Home</div>' } },
     {
       path: '/events/:id/join',
       name: 'join-team',
@@ -162,5 +163,20 @@ describe('JoinTeamView Component', () => {
     })
     expect(localStorage.getItem('participant_osm_username')).toBeNull()
     expect(localStorage.getItem('participant_github_username')).toBe('old-gh')
+  })
+
+  it('prefills the display name from the landing-page profile and links back to it', async () => {
+    localStorage.setItem('participant_id', 'device-9')
+    localStorage.setItem('participant_name', 'Robin')
+    localStorage.setItem('participant_wikimedia_username', 'RobinW')
+
+    router.push('/events/1/join')
+    await router.isReady()
+    const wrapper = mount(JoinTeamView, { global: { plugins: [router] } })
+
+    expect((wrapper.find('#displayName').element as HTMLInputElement).value).toBe('Robin')
+    expect((wrapper.find('#wikimediaUsername').element as HTMLInputElement).value).toBe('RobinW')
+    expect(wrapper.find('.profile-note a').attributes('href')).toBe('/')
+    expect(localStorage.getItem('participant_id')).toBe('device-9')
   })
 })

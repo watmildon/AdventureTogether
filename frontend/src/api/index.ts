@@ -137,14 +137,34 @@ export interface CheckinData {
   verified_at?: string | null
 }
 
-/** Error carrying the HTTP status so callers can tell e.g. 400 from 502. */
+/**
+ * Error carrying the HTTP status so callers can tell e.g. 400 from 502, plus DRF's per-field
+ * messages ({field: [messages]}) when the server sent them, so forms can show them per field.
+ */
 export class ApiError extends Error {
   status: number
-  constructor(message: string, status: number) {
+  fields: Record<string, string[]>
+  constructor(message: string, status: number, fields: Record<string, string[]> = {}) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.fields = fields
   }
+}
+
+/** Per-platform counters in a trigger_harvest response (see documentation/harvesters.md). */
+export interface HarvestPlatformStats {
+  harvested?: number
+  created?: number
+  updated?: number
+  matched?: number
+  errors?: number
+}
+
+export interface HarvestResult {
+  message: string
+  /** One entry per platform that ran, plus summary/warnings/event/found/dry_run. */
+  stats: Record<string, any>
 }
 
 export interface LocationPingData {
@@ -212,7 +232,32 @@ const fieldErrorDetail = async (res: Response, fallback: string): Promise<string
   return first ? `${first[0]}: ${([] as any[]).concat(first[1]).join(' ')}` : fallback
 }
 
+/** Normalises a DRF error body to {field: [messages]}, ignoring non-list/non-string values. */
+const fieldErrors = (body: Record<string, any>): Record<string, string[]> => {
+  const out: Record<string, string[]> = {}
+  for (const [field, value] of Object.entries(body)) {
+    const messages = ([] as any[]).concat(value).filter((m) => typeof m === 'string')
+    if (messages.length) out[field] = messages
+  }
+  return out
+}
+
+/** Throws an ApiError carrying the body's field errors; the message is the first "field: message". */
+const throwWithFields = async (res: Response, fallback: string): Promise<never> => {
+  const fields = fieldErrors(await readError(res))
+  const first = Object.entries(fields)[0]
+  throw new ApiError(first ? `${first[0]}: ${first[1].join(' ')}` : fallback, res.status, fields)
+}
+
 const API_BASE = '/api'
+
+/** Total of a paginated list endpoint, from the `count` on its first page (no further pages fetched). */
+const countOf = async (path: string): Promise<number> => {
+  const res = await fetch(`${API_BASE}${path}`)
+  if (!res.ok) throw new ApiError(`Failed to count ${path}`, res.status)
+  const data = await res.json()
+  return typeof data.count === 'number' ? data.count : (Array.isArray(data) ? data.length : 0)
+}
 
 
 export const api = {
@@ -236,14 +281,36 @@ export const api = {
     return res.json()
   },
 
+  /** Creates an event; a 400 throws ApiError whose `fields` hold the per-field messages. */
   async createEvent(event: Partial<EventData>): Promise<EventData> {
     const res = await fetch(`${API_BASE}/events/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(event)
     })
-    if (!res.ok) throw new Error('Failed to create event')
+    if (!res.ok) await throwWithFields(res, 'Failed to create event')
     return res.json()
+  },
+
+  /** PATCHes any subset of an event's writable fields (e.g. just `is_active`). */
+  async updateEvent(eventId: number | string, changes: Partial<EventData>): Promise<EventData> {
+    const res = await fetch(`${API_BASE}/events/${eventId}/`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(changes)
+    })
+    if (!res.ok) await throwWithFields(res, 'Failed to update event')
+    return res.json()
+  },
+
+  /** Number of quests of the event, active or not. */
+  async countQuests(eventId: number | string): Promise<number> {
+    return countOf(`/quests/?event=${eventId}`)
+  },
+
+  /** Number of teams of the event. */
+  async countTeams(eventId: number | string): Promise<number> {
+    return countOf(`/teams/?event=${eventId}`)
   },
 
   /** Teams of the event ranked by score (descending). */
@@ -281,8 +348,9 @@ export const api = {
       body: JSON.stringify({ event: eventId, name })
     })
     if (!res.ok) {
-      const err = await res.json()
-      throw new Error(err.name?.[0] || 'Failed to create team')
+      const err = await readError(res)
+      // A duplicate name comes back as non_field_errors (unique per event)
+      throw new Error(err.name?.[0] || err.non_field_errors?.[0] || 'Failed to create team')
     }
     return res.json()
   },
@@ -405,6 +473,29 @@ export const api = {
     if (!res.ok) throw new Error('Failed to fetch submissions')
     const data = await res.json()
     return data.results || data
+  },
+
+  /** Number of submissions of the event, optionally only verified (true) or pending (false). */
+  async countSubmissions(eventId: number | string, isVerified?: boolean): Promise<number> {
+    const filter = isVerified === undefined ? '' : `&is_verified=${isVerified}`
+    return countOf(`/submissions/?event=${eventId}${filter}`)
+  },
+
+  /**
+   * Runs a harvest for the event now and returns {message, stats}. A 404 (event missing or
+   * inactive) or 400 throws ApiError with the server's message.
+   */
+  async triggerHarvest(eventId: number | string): Promise<HarvestResult> {
+    const res = await fetch(`${API_BASE}/submissions/trigger_harvest/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event: Number(eventId) })
+    })
+    if (!res.ok) {
+      const err = await readError(res)
+      throw new ApiError(err.error || err.detail || 'Harvest failed', res.status)
+    }
+    return res.json()
   },
 
   async verifySubmission(submissionId: number | string, verifiedByUsername: string = 'Host'): Promise<SubmissionData> {

@@ -208,6 +208,14 @@ def main():
 
     if not args.keep:
         print('7. Cleanup')
+        # Submissions survive the team delete (team is SET_NULL), so remove the ones we made.
+        subs = requests.get(f'{api}/submissions/', params={'event': event_id}, timeout=10).json()
+        subs = subs.get('results', subs)
+        ours = [sub for sub in subs if str(sub.get('external_id', '')).startswith('e2e-')
+                or sub.get('author_username') == 'E2E Smoke']
+        for sub in ours:
+            requests.delete(f'{api}/submissions/{sub["id"]}/', timeout=10)
+        check(True, f'{len(ours)} e2e submissions removed')
         deleted = requests.delete(f'{api}/teams/{team_id}/', timeout=10)
         check(deleted.status_code == 204, 'throwaway team deleted')
 

@@ -6,9 +6,9 @@
  * Purely presentational: EventMapView owns the data (quests, progress, check-ins)
  * and handles the map side of "Show on map".
  */
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import type { QuestData, QuestProgressData } from '../api'
-import { questTypeFor, formatSessionLine, formatQuestWindow } from '../composables/useQuestTypes'
+import { questTypeFor, formatSessionLine, formatQuestWindow, canDoQuest, toolsNeededText } from '../composables/useQuestTypes'
 import type { CheckinStates } from '../composables/checkinState'
 
 const props = withDefaults(defineProps<{
@@ -19,16 +19,25 @@ const props = withDefaults(defineProps<{
   hasTeam?: boolean
   /** Check-in state per quest id from pings / the check-ins endpoint (see checkinState.ts). */
   checkins?: CheckinStates
+  /** Tools the participant ticked on the landing page (`participant_tools`). */
+  tools?: readonly string[]
 }>(), {
   progressByQuest: () => new Map(),
   hasTeam: false,
-  checkins: () => ({})
+  checkins: () => ({}),
+  tools: () => []
 })
 
 const emit = defineEmits<{ (e: 'show-on-map', quest: QuestData): void }>()
 
+/**
+ * "Only quests I can do": on by default once the participant has ticked any tool. With no
+ * tools ticked we cannot tell what they can do, so everything shows (with "Needs: ..." lines).
+ */
+const onlyDoable = ref(props.tools.length > 0)
+
 /** Everything a card renders, derived once per quest. */
-const cards = computed(() =>
+const allCards = computed(() =>
   props.quests.map((quest) => {
     const row = props.progressByQuest.get(quest.id)
     const target = row?.target_count ?? quest.target_count ?? 1
@@ -43,68 +52,89 @@ const cards = computed(() =>
       complete: Boolean(row && (row.completed_at || row.count >= row.target_count)),
       // Capped so a team that overshoots the target does not overflow the bar
       percent: Math.min(100, Math.round((count / Math.max(target, 1)) * 100)),
-      checkin: props.checkins[quest.id]
+      checkin: props.checkins[quest.id],
+      doable: canDoQuest(quest.criteria_type, props.tools),
+      needs: toolsNeededText(quest.criteria_type)
     }
   })
 )
+
+const cards = computed(() => (onlyDoable.value ? allCards.value.filter((card) => card.doable) : allCards.value))
+const hiddenCount = computed(() => allCards.value.length - cards.value.length)
 </script>
 
 <template>
   <div class="quest-panel">
     <p v-if="quests.length === 0" class="empty">No quests published for this event yet.</p>
 
-    <ul v-else class="quest-list">
-      <li
-        v-for="card in cards"
-        :key="card.quest.id"
-        :class="['quest-card', { complete: card.complete }]"
-        :style="{ '--type-color': `var(${card.type.colorToken})` }"
-        :data-quest-id="card.quest.id"
-      >
-        <div class="quest-top">
-          <span class="type-badge">{{ card.type.icon }} {{ card.type.shortLabel }}</span>
-          <span class="points">{{ card.quest.points_reward }} pts</span>
-          <span v-if="card.complete" class="state state-done">✓ Done</span>
-          <span v-else-if="card.checkin === 'verified'" class="state state-done">✓ Checked in</span>
-          <span v-else-if="card.checkin === 'in_range'" class="state state-here">📍 You're here</span>
-          <span v-else-if="card.checkin === 'dwelling'" class="state state-here">📍 You're here, stay a few minutes</span>
-        </div>
+    <template v-else>
+      <label class="doable-toggle">
+        <input v-model="onlyDoable" type="checkbox" />
+        Only quests I can do
+      </label>
+      <p v-if="onlyDoable && hiddenCount > 0" class="hidden-note">
+        {{ hiddenCount }} quest{{ hiddenCount === 1 ? '' : 's' }} hidden: they need tools you have not ticked.
+        <a href="/">Update your tools</a>
+      </p>
+      <p v-if="!onlyDoable && tools.length === 0" class="hidden-note">
+        Tick the <a href="/">tools you have</a> to see only the quests you can do.
+      </p>
 
-        <h4 class="quest-title">{{ card.quest.title }}</h4>
+      <ul class="quest-list">
+        <li
+          v-for="card in cards"
+          :key="card.quest.id"
+          :class="['quest-card', { complete: card.complete, 'not-doable': !card.doable }]"
+          :style="{ '--type-color': `var(${card.type.colorToken})` }"
+          :data-quest-id="card.quest.id"
+        >
+          <div class="quest-top">
+            <span class="type-badge">{{ card.type.icon }} {{ card.type.shortLabel }}</span>
+            <span class="points">{{ card.quest.points_reward }} pts</span>
+            <span v-if="card.complete" class="state state-done">✓ Done</span>
+            <span v-else-if="card.checkin === 'verified'" class="state state-done">✓ Checked in</span>
+            <span v-else-if="card.checkin === 'in_range'" class="state state-here">📍 You're here</span>
+            <span v-else-if="card.checkin === 'dwelling'" class="state state-here">📍 You're here, stay a few minutes</span>
+          </div>
 
-        <div class="quest-progress">
-          <template v-if="hasTeam">
-            <div class="bar" role="progressbar" :aria-valuenow="card.count" aria-valuemin="0" :aria-valuemax="card.target">
-              <div class="bar-fill" :style="{ width: `${card.percent}%` }"></div>
-            </div>
-            <span class="progress-text">{{ card.count }}/{{ card.target }}</span>
-          </template>
-          <span v-else class="progress-text">Target: {{ card.target }}</span>
-        </div>
+          <h4 class="quest-title">{{ card.quest.title }}</h4>
 
-        <p v-if="card.window" class="quest-meta">🕒 {{ card.window }}</p>
+          <div class="quest-progress">
+            <template v-if="hasTeam">
+              <div class="bar" role="progressbar" :aria-valuenow="card.count" aria-valuemin="0" :aria-valuemax="card.target">
+                <div class="bar-fill" :style="{ width: `${card.percent}%` }"></div>
+              </div>
+              <span class="progress-text">{{ card.count }}/{{ card.target }}</span>
+            </template>
+            <span v-else class="progress-text">Target: {{ card.target }}</span>
+          </div>
 
-        <p v-if="card.session" class="quest-meta inspired">
-          Inspired by:
-          <a v-if="card.session.url" :href="card.session.url" target="_blank" rel="noopener">{{ card.session.title }}</a>
-          <span v-else>{{ card.session.title }}</span>
-          <span v-if="card.session.details"> — {{ card.session.details }}</span>
-        </p>
+          <p v-if="!card.doable" class="quest-meta needs">Needs: {{ card.needs }}</p>
 
-        <div class="quest-actions">
-          <span class="help-app">Use: {{ card.type.helpApp }}</span>
-          <button
-            v-if="card.quest.target_geometry"
-            type="button"
-            class="btn btn-outline show-btn"
-            @click="emit('show-on-map', card.quest)"
-          >
-            Show on map
-          </button>
-          <span v-else class="help-app">Anywhere in the event area</span>
-        </div>
-      </li>
-    </ul>
+          <p v-if="card.window" class="quest-meta">🕒 {{ card.window }}</p>
+
+          <p v-if="card.session" class="quest-meta inspired">
+            Inspired by:
+            <a v-if="card.session.url" :href="card.session.url" target="_blank" rel="noopener">{{ card.session.title }}</a>
+            <span v-else>{{ card.session.title }}</span>
+            <span v-if="card.session.details"> — {{ card.session.details }}</span>
+          </p>
+
+          <div class="quest-actions">
+            <span class="help-app">Use: {{ card.type.helpApp }}</span>
+            <button
+              v-if="card.quest.target_geometry"
+              type="button"
+              class="btn btn-outline show-btn"
+              @click="emit('show-on-map', card.quest)"
+            >
+              Show on map
+            </button>
+            <span v-else class="help-app">Anywhere in the event area</span>
+          </div>
+        </li>
+      </ul>
+    </template>
   </div>
 </template>
 
@@ -112,6 +142,22 @@ const cards = computed(() =>
 .empty {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
+}
+
+.doable-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  margin-bottom: var(--space-1);
+  cursor: pointer;
+}
+
+.hidden-note {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-2);
 }
 
 .quest-list {
@@ -163,6 +209,14 @@ const cards = computed(() =>
 
 .state-here {
   color: var(--color-warning);
+}
+
+.quest-card.not-doable {
+  opacity: 0.75;
+}
+
+.needs {
+  font-style: italic;
 }
 
 .quest-title {

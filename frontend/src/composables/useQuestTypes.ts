@@ -224,7 +224,120 @@ export function formatQuestWindow(start?: string | null, end?: string | null): s
   return null
 }
 
+/**
+ * Tools a participant can say they have (landing page "Tools I have" checklist). The quest
+ * panel uses them to hide quests the participant has no way to do. Links point at official
+ * project pages, which carry the current store/download links.
+ */
+export type ToolId =
+  | 'streetcomplete'
+  | 'everydoor'
+  | 'osm_web'
+  | 'commons'
+  | 'wikidata'
+  | 'ohm_editor'
+  | 'github'
+  | 'panoramax'
+
+export interface ToolInfo {
+  id: ToolId
+  label: string
+  /** One line on what it is and where it runs. */
+  description: string
+  links: { label: string; url: string }[]
+}
+
+export const TOOLS: ToolInfo[] = [
+  {
+    id: 'streetcomplete',
+    label: 'StreetComplete',
+    description: 'Phone app that asks simple questions about what is around you and saves the answers to OpenStreetMap.',
+    links: [{ label: 'Get the app', url: 'https://streetcomplete.app/' }]
+  },
+  {
+    id: 'everydoor',
+    label: 'EveryDoor',
+    description: 'Phone app (Android and iOS) for adding shops, entrances and other points to OpenStreetMap on the go.',
+    links: [{ label: 'Get the app', url: 'https://every-door.app/' }]
+  },
+  {
+    id: 'osm_web',
+    label: 'OpenStreetMap web editor (iD)',
+    description: 'Edit OpenStreetMap in any browser, and comment on or resolve map notes. Needs a free OSM account.',
+    links: [{ label: 'Open the editor', url: 'https://www.openstreetmap.org/edit' }]
+  },
+  {
+    id: 'commons',
+    label: 'Wikimedia Commons',
+    description: 'Upload photos with the Commons Android app or the web Upload Wizard. Needs a Wikimedia account.',
+    links: [
+      { label: 'Android app', url: 'https://play.google.com/store/apps/details?id=fr.free.nrw.commons' },
+      { label: 'Web upload', url: 'https://commons.wikimedia.org/wiki/Special:UploadWizard' }
+    ]
+  },
+  {
+    id: 'wikidata',
+    label: 'Wikidata',
+    description: 'Add facts and statements to Wikidata items in the browser, with the same Wikimedia account.',
+    links: [{ label: 'Open Wikidata', url: 'https://www.wikidata.org/' }]
+  },
+  {
+    id: 'ohm_editor',
+    label: 'OpenHistoricalMap editor',
+    description: 'Map how places used to be, in the browser. Sign in with your OpenStreetMap account.',
+    links: [{ label: 'Open the editor', url: 'https://www.openhistoricalmap.org/edit' }]
+  },
+  {
+    id: 'github',
+    label: 'GitHub account',
+    description: 'Open pull requests or issues on open source projects for code contribution quests.',
+    links: [{ label: 'Sign up', url: 'https://github.com/signup' }]
+  },
+  {
+    id: 'panoramax',
+    label: 'Panoramax',
+    description: 'Capture and upload street-level photo sequences to the open Panoramax imagery commons.',
+    links: [{ label: 'About and apps', url: 'https://wiki.openstreetmap.org/wiki/Panoramax' }]
+  }
+]
+
+/** Tools by id, for labels in "Needs: ..." lines. */
+export const TOOLS_BY_ID = Object.fromEntries(TOOLS.map((tool) => [tool.id, tool])) as Record<ToolId, ToolInfo>
+
+/**
+ * Which tools make each quest type doable: having any one of them is enough. An empty list
+ * means the quest needs no tool at all (check-ins only need this map open).
+ */
+export const questTypeTools: Record<CriteriaType, ToolId[]> = {
+  osm_tags: ['streetcomplete', 'everydoor', 'osm_web'],
+  osm_notes: ['osm_web', 'streetcomplete'],
+  ohm_feature: ['ohm_editor'],
+  wikimedia_commons: ['commons'],
+  wikidata_entry: ['wikidata'],
+  wikidata_statement: ['wikidata'],
+  oss_contribution: ['github'],
+  street_imagery: ['panoramax'],
+  location_checkin: []
+}
+
+/**
+ * True when the participant has at least one tool that can complete a quest of this type.
+ * Check-ins are always doable; unknown (newer) types are treated as doable rather than hidden.
+ */
+export function canDoQuest(criteriaType: string, tools: readonly string[]): boolean {
+  const needed = questTypeTools[criteriaType as CriteriaType]
+  if (!needed || needed.length === 0) return true
+  return needed.some((tool) => tools.includes(tool))
+}
+
+/** "StreetComplete, EveryDoor or OpenStreetMap web editor (iD)"; '' when the type needs nothing. */
+export function toolsNeededText(criteriaType: string): string {
+  const labels = (questTypeTools[criteriaType as CriteriaType] || []).map((id) => TOOLS_BY_ID[id].label)
+  if (labels.length <= 1) return labels[0] || ''
+  return `${labels.slice(0, -1).join(', ')} or ${labels[labels.length - 1]}`
+}
+
 /** Composable wrapper so components can destructure the helpers in the usual Vue style. */
 export function useQuestTypes() {
-  return { QUEST_TYPES, CRITERIA_TYPES, questTypeFor, platformInfo, formatSessionLine, formatQuestWindow }
+  return { QUEST_TYPES, CRITERIA_TYPES, questTypeFor, platformInfo, formatSessionLine, formatQuestWindow, TOOLS, canDoQuest, toolsNeededText }
 }

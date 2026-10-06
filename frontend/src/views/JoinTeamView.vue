@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { api, type TeamData, type PlatformUsernames } from '../api'
+import { readProfile, saveIdentity, ensureParticipantId } from '../composables/participantProfile'
 
 const route = useRoute()
 const router = useRouter()
@@ -9,45 +10,29 @@ const eventId = route.params.id as string
 
 const joinCode = ref('')
 const teamName = ref('')
-const displayName = ref(localStorage.getItem('participant_name') || '')
-const userIdentifier = ref(localStorage.getItem('participant_id') || `user-${Math.random().toString(36).substring(2, 9)}`)
 const activeTab = ref<'join' | 'create'>('join')
 
-// Optional platform usernames, remembered across events so participants type them once.
-// Sent on join so the harvesters can credit OSM/OHM, Commons/Wikidata and GitHub edits to the team.
-const USERNAME_STORAGE_KEYS: Record<keyof PlatformUsernames, string> = {
-  osm_username: 'participant_osm_username',
-  wikimedia_username: 'participant_wikimedia_username',
-  github_username: 'participant_github_username'
-}
-const osmUsername = ref(localStorage.getItem(USERNAME_STORAGE_KEYS.osm_username) || '')
-const wikimediaUsername = ref(localStorage.getItem(USERNAME_STORAGE_KEYS.wikimedia_username) || '')
-const githubUsername = ref(localStorage.getItem(USERNAME_STORAGE_KEYS.github_username) || '')
+// Prefilled from the landing page profile (same localStorage keys). The usernames stay
+// editable here because they are sent with the join so harvested edits credit the team.
+const profile = readProfile()
+const userIdentifier = ref(ensureParticipantId())
+const displayName = ref(profile.displayName)
+const osmUsername = ref(profile.usernames.osm_username)
+const wikimediaUsername = ref(profile.usernames.wikimedia_username)
+const githubUsername = ref(profile.usernames.github_username)
 
 const existingTeams = ref<TeamData[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 const successMsg = ref<string | null>(null)
 
-// Persist participant ID
-if (!localStorage.getItem('participant_id')) {
-  localStorage.setItem('participant_id', userIdentifier.value)
-}
-
-/** Saves the participant's name and usernames locally and returns the usernames for the join call. */
-const persistParticipant = (): PlatformUsernames => {
-  localStorage.setItem('participant_name', displayName.value)
-  const usernames: Required<PlatformUsernames> = {
-    osm_username: osmUsername.value.trim(),
-    wikimedia_username: wikimediaUsername.value.trim(),
-    github_username: githubUsername.value.trim()
-  }
-  for (const [field, key] of Object.entries(USERNAME_STORAGE_KEYS) as [keyof PlatformUsernames, string][]) {
-    if (usernames[field]) localStorage.setItem(key, usernames[field])
-    else localStorage.removeItem(key)
-  }
-  return usernames
-}
+/** Saves the participant's name and usernames back to the profile and returns the usernames for the join call. */
+const persistParticipant = (): PlatformUsernames =>
+  saveIdentity(displayName.value, {
+    osm_username: osmUsername.value,
+    wikimedia_username: wikimediaUsername.value,
+    github_username: githubUsername.value
+  })
 
 /**
  * Remembers the joined team. `team_for_event_<id>` is the event-scoped record the map reads
@@ -136,6 +121,10 @@ onMounted(() => {
     <div class="card form-card">
       <h2 class="form-title">Team Management</h2>
       <p class="form-subtitle">Event #{{ eventId }}</p>
+
+      <p class="profile-note">
+        Filled in from <RouterLink to="/">your profile</RouterLink>. Changes here are saved to it too.
+      </p>
 
       <div v-if="successMsg" class="alert alert-success">{{ successMsg }}</div>
       <div v-if="error" class="alert alert-danger">{{ error }}</div>
@@ -236,6 +225,13 @@ onMounted(() => {
 
 .form-subtitle {
   text-align: center;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-4);
+}
+
+.profile-note {
+  text-align: center;
+  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   margin-bottom: var(--space-4);
 }

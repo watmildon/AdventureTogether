@@ -8,6 +8,7 @@ import { useDeepLinks } from '../composables/useDeepLinks'
 import { useQuestProgress, readStoredTeam } from '../composables/useQuestProgress'
 import { mergePingCheckins, mergeRecordedCheckins, questMinMinutes, type CheckinStates } from '../composables/checkinState'
 import { createQuestLayer, questPopupHtml, focusQuestLayer } from '../composables/questLayers'
+import { readTools } from '../composables/participantProfile'
 import QuestPanel from '../components/QuestPanel.vue'
 import LeaderboardList from '../components/LeaderboardList.vue'
 
@@ -65,6 +66,9 @@ const teamName = computed(() =>
   (storedTeam?.id === teamId.value ? storedTeam?.name : null) ||
   null
 )
+
+/** Tools ticked on the landing page; the quest panel hides quests none of them can do. */
+const participantTools = readTools()
 
 /** Participants hide inactive quests; hosts still see them in the builder. */
 const visibleQuests = computed(() => quests.value.filter((q) => q.is_active !== false))
@@ -393,6 +397,7 @@ onUnmounted(() => {
             :progress-by-quest="progressByQuest"
             :has-team="Boolean(teamId)"
             :checkins="checkins"
+            :tools="participantTools"
             @show-on-map="showQuestOnMap"
           />
         </div>

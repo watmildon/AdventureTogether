@@ -17,14 +17,16 @@ export const PROGRESS_POLL_MS = 30000
  * (`team_for_event_<id>`). The global `team_id` / `team_name` keys are deliberately not read:
  * they hold whichever team was joined last, possibly for another event.
  */
-export function readStoredTeam(eventId: number | string): { id: number; name: string | null } | null {
+export function readStoredTeam(eventId: number | string): { id: number; name: string | null; joinCode?: string } | null {
   try {
     const scoped = localStorage.getItem(`team_for_event_${eventId}`)
     if (!scoped) return null
     const team = JSON.parse(scoped)
     const id = Number(team?.id)
     if (!Number.isFinite(id) || id <= 0) return null
-    return { id, name: typeof team?.name === 'string' ? team.name : null }
+    // JoinTeamView stores the whole team, so the join code is there too (the landing page shows it)
+    const joinCode = typeof team?.join_code === 'string' && team.join_code ? team.join_code : undefined
+    return { id, name: typeof team?.name === 'string' ? team.name : null, ...(joinCode ? { joinCode } : {}) }
   } catch {
     // Corrupt value: treat as no team; the ping response can still supply one
     return null

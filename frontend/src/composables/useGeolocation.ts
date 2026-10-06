@@ -5,6 +5,7 @@
 
 import { ref, onMounted, onUnmounted, getCurrentInstance } from 'vue'
 import { api, type LocationPingData } from '../api'
+import { ensureParticipantId } from './participantProfile'
 
 export type VisibilityTier = 'nobody' | 'team' | 'quest'
 
@@ -82,11 +83,7 @@ export function useGeolocation(eventId: number | string) {
 
   // Persist a generated id so pings, the "Active Teammates" filter and check-ins all
   // refer to the same participant across reloads (JoinTeamView uses the same key).
-  const userIdentifier: string = localStorage.getItem('participant_id') || (() => {
-    const generated = `user-${Math.random().toString(36).substring(2, 9)}`
-    localStorage.setItem('participant_id', generated)
-    return generated
-  })()
+  const userIdentifier: string = ensureParticipantId()
   const displayName = localStorage.getItem('participant_name') || 'Anonymous Mapper'
 
   /**

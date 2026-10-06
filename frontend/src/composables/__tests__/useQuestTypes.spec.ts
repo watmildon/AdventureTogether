@@ -7,7 +7,11 @@ import {
   PLATFORMS,
   formatSessionLine,
   formatSessionTime,
-  formatQuestWindow
+  formatQuestWindow,
+  TOOLS,
+  questTypeTools,
+  canDoQuest,
+  toolsNeededText
 } from '../useQuestTypes'
 
 describe('QUEST_TYPES map', () => {
@@ -138,5 +142,49 @@ describe('formatQuestWindow', () => {
     expect(formatQuestWindow(null, local(2026, 11, 4, 17))).toBe('Until Wed 17:00')
     expect(formatQuestWindow(null, null)).toBeNull()
     expect(formatQuestWindow('not a date', undefined)).toBeNull()
+  })
+})
+
+describe('tools and canDoQuest', () => {
+  it('maps every criteria type to the tools that make it doable', () => {
+    for (const type of CRITERIA_TYPES) expect(questTypeTools[type], type).toBeDefined()
+    const toolIds = TOOLS.map((tool) => tool.id)
+    for (const tools of Object.values(questTypeTools)) {
+      for (const tool of tools) expect(toolIds).toContain(tool)
+    }
+    // Every tool has a description and at least one https link
+    for (const tool of TOOLS) {
+      expect(tool.description, tool.id).toBeTruthy()
+      expect(tool.links.length, tool.id).toBeGreaterThan(0)
+      for (const link of tool.links) expect(link.url).toMatch(/^https:\/\//)
+    }
+  })
+
+  it('needs any one of the listed tools', () => {
+    expect(canDoQuest('osm_tags', ['everydoor'])).toBe(true)
+    expect(canDoQuest('osm_tags', ['osm_web'])).toBe(true)
+    expect(canDoQuest('osm_tags', ['commons', 'wikidata'])).toBe(false)
+    expect(canDoQuest('osm_notes', ['streetcomplete'])).toBe(true)
+    expect(canDoQuest('osm_notes', ['everydoor'])).toBe(false)
+    expect(canDoQuest('ohm_feature', ['osm_web'])).toBe(false)
+    expect(canDoQuest('ohm_feature', ['ohm_editor'])).toBe(true)
+    expect(canDoQuest('wikimedia_commons', ['commons'])).toBe(true)
+    expect(canDoQuest('wikidata_entry', ['wikidata'])).toBe(true)
+    expect(canDoQuest('wikidata_statement', ['commons'])).toBe(false)
+    expect(canDoQuest('oss_contribution', ['github'])).toBe(true)
+    expect(canDoQuest('street_imagery', ['panoramax'])).toBe(true)
+    expect(canDoQuest('street_imagery', [])).toBe(false)
+  })
+
+  it('treats check-ins and unknown types as always doable', () => {
+    expect(canDoQuest('location_checkin', [])).toBe(true)
+    expect(canDoQuest('future_type', [])).toBe(true)
+  })
+
+  it('lists the needed tools as "A, B or C"', () => {
+    expect(toolsNeededText('osm_tags')).toBe('StreetComplete, EveryDoor or OpenStreetMap web editor (iD)')
+    expect(toolsNeededText('osm_notes')).toBe('OpenStreetMap web editor (iD) or StreetComplete')
+    expect(toolsNeededText('wikidata_entry')).toBe('Wikidata')
+    expect(toolsNeededText('location_checkin')).toBe('')
   })
 })
