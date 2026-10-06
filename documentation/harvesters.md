@@ -14,7 +14,7 @@ A harvest run takes one event and looks at its **active** quests. For each crite
 | `ohm_feature` | `overpass_harvester.py` | OHM Overpass (`OHM_OVERPASS_URL`) + OHM changeset API | `ohm` |
 | `osm_notes` | `osm_notes_harvester.py` | OSM Notes API | `osm_notes` |
 | `wikimedia_commons` | `wikimedia_harvester.py` | Commons MediaWiki API | `commons` |
-| `wikidata_entry`, `wikidata_statement` | `wikidata_harvester.py` | Wikidata MediaWiki API | `wikidata` |
+| `wikidata_entry`, `wikidata_statement`, `wikidata_area` | `wikidata_harvester.py` | Wikidata MediaWiki API | `wikidata` |
 | `oss_contribution` | `github_harvester.py` | GitHub issue search API | `github` |
 | `mangrove_review` | `mangrove_harvester.py` | Mangrove Reviews API (`MANGROVE_API`) | `mangrove` |
 | `maproulette_task` | `maproulette_harvester.py` | MapRoulette API (`MAPROULETTE_API`) + OSM changeset API | `maproulette` |
@@ -152,14 +152,58 @@ The author is the user who closed the note. If the note was closed anonymously, 
 
 **Commons.** A full-text search in the File namespace (`list=search&srnamespace=6&srsearch=#TAG`) finds files whose description mentions the hashtag. The harvester then resolves each hit with `prop=imageinfo|categories&iiprop=user|timestamp|url|extmetadata` (`iiextmetadatafilter=ImageDescription|ObjectName`, so the file's description and object name land in `diff_payload` as plain text for value-scoring quests). The uploader (`imageinfo.user`) is the author, the upload time must fall in the window, and the file's description page is the submission URL. When a quest sets `category`, the file must be in that category. Each (file, quest) pair is one submission. On a quest with `validation_rules.scoring.value`, every platform's submissions get `extracted_value` read from their payload at harvest time (see `quest_types.md`, Value scoring).
 
-**Wikidata, `wikidata_entry`.** Candidate edits come from two sources:
+**Wikidata and the hashtag.** Wikidata's UI (and tools such as WikiShootMe) write automatic edit summaries such as `/* wbsetclaim-create:2||1 */ [[Property:P18]]: Tower Theatre.jpg`, so a normal edit never carries the event hashtag. All three Wikidata types therefore take `require_hashtag`, default `false`: edits are found and credited through the `wikimedia_username` members shared. With `require_hashtag: true` the behaviour below marked "with the hashtag" applies.
 
-- a hashtag search of items, whose revisions in the window are then read with `prop=revisions&rvlimit=20`;
-- the in-window contributions (`list=usercontribs`) of every team member who shared a `wikimedia_username`.
+**Wikidata, `wikidata_entry`.** Candidate edits come from:
 
-Wikidata's search does not index edit summaries, so the second source is what finds most edits in practice. Every revision whose summary contains the hashtag becomes one submission (`external_id` = revision id), assigned to the first open `wikidata_entry` quest.
+- the in-window contributions (`list=usercontribs`, up to 500) of every team member who shared a `wikimedia_username`;
+- with the hashtag only: a hashtag search of items, whose revisions in the window are then read with `prop=revisions&rvlimit=20`. Wikidata's search does not index edit summaries, so this rarely finds anything the contributions miss.
 
-**Wikidata, `wikidata_statement`.** For each quest the harvester reads up to 100 revisions of the named item (`validation_rules.qid`) inside the quest window. It keeps those whose summary has the hashtag **and** mentions one of the configured properties as a whole token. Wikidata's automatic summaries contain e.g. `[[Property:P84]]`, and `P84` does not match `P8410`.
+Each member revision (or, for a quest with the hashtag, each revision whose summary contains it) becomes one submission (`external_id` = revision id), assigned to the first open `wikidata_entry` quest it qualifies for.
+
+**Wikidata, `wikidata_statement`.** For each quest the harvester reads up to 100 revisions of the named item (`validation_rules.qid`) inside the quest window. It keeps those that mention one of the configured properties as a whole token and were made by a member (with the hashtag: whose summary has the hashtag, by anyone). Wikidata's automatic summaries contain e.g. `[[Property:P84]]`, and `P84` does not match `P8410`. A quest without the hashtag in an event where nobody has shared a `wikimedia_username` reads nothing.
+
+### 4.1 `wikidata_area`: statements on items in the area
+
+For all `wikidata_area` quests together, each member who shared a `wikimedia_username` is read once:
+
+```
+GET {WIKIDATA_API}?action=query&list=usercontribs&ucuser={name}&ucnamespace=0
+    &ucstart={end}&ucend={earliest quest window start}&ucprop=ids|title|timestamp|comment&uclimit=100
+```
+
+following `uccontinue` for at most 5 pages (500 edits) per member; hitting the cap records a warning. Members without a username contribute nothing, and an event where nobody has one makes no requests (a warning says so).
+
+An edit is a candidate when its title is an item (`Q…`) and its automatic summary both starts with one of the accepted prefixes and mentions one of the quests' properties as a whole token:
+
+| Summary prefix | Written by |
+|---|---|
+| `/* wbsetclaim-create` | the Wikidata UI and the Commons app, adding a statement |
+| `/* wbcreateclaim-create` | API tools such as WikiShootMe (`..., #wikishootme`), adding a statement |
+| `/* wbsetclaim-update` | the Wikidata UI, changing a statement's value |
+
+Removals (`wbremoveclaims-*`), qualifier and reference edits, and whole-item edits (`wbeditentity-*`, e.g. QuickStatements batches) are not accepted.
+
+The candidates' coordinates are then resolved with `action=wbgetentities&ids=Q1|Q2…&props=claims|labels&languages=en`, 50 ids a request (the labels ride along for free). The first P625 `mainsnak` value (a preferred statement first, deprecated ones never) gives `latitude`/`longitude`. Each request is counted in the `entity_lookups` stat, and results, including items without coordinates, are cached for the run. For each quest an edit counts when it mentions one of that quest's properties, is inside the quest window (and has the hashtag when `require_hashtag` is true), and the item's coordinates are in the quest's area (`point_in_quest_area`). Each (item, quest) pair is one submission, `external_id` `{qid}/q{quest}`, credited to the member with the earliest qualifying edit (`author_username` is the member's `wikimedia_username` as shared), with `diff_payload` `{qid, label, properties_touched, revid, comment, lat, lon}`.
+
+**Targets.** `GET /api/quests/{id}/targets/` answers "which items still need a photo?" with one SPARQL query to the Wikidata Query Service (`WIKIDATA_SPARQL`, default `https://query.wikidata.org/sparql`, timeout 60 s):
+
+```sparql
+SELECT ?item ?itemLabel ?lat ?lon WHERE {
+  SERVICE wikibase:box {
+    ?item wdt:P625 ?location .
+    bd:serviceParam wikibase:cornerSouthWest "Point(-121.509 38.572)"^^geo:wktLiteral .
+    bd:serviceParam wikibase:cornerNorthEast "Point(-121.481 38.590)"^^geo:wktLiteral .
+  }
+  FILTER NOT EXISTS { ?item wdt:P18 [] }      # one line per configured property
+  BIND(geof:latitude(?location) AS ?lat)
+  BIND(geof:longitude(?location) AS ?lon)
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+}
+LIMIT 500
+```
+
+The box is `quest_bbox` (the event perimeter's extent for a quest without geometry); rows are de-duplicated per item and filtered with `point_in_quest_area`, so polygon and radius areas are honoured. The answer is cached in Django's cache for 30 minutes per quest and rules (failures are not cached); with the default local-memory cache each web worker keeps its own copy.
 
 ---
 
@@ -290,6 +334,7 @@ python manage.py harvest_event 1 --dry-run  # make every fetch, write nothing, l
 - `errors`: failed external calls. A failure in one platform never stops the others.
 - `history_lookups` (`osm` and `ohm` only): element history requests made for `"action": "create"` quests (section 2.4). It is not added to `summary`.
 - `detail_lookups` (`maproulette` only): `GET /task/{id}` requests (section 7). It is not added to `summary`.
+- `entity_lookups` (`wikidata`, when `wikidata_area` quests ran): `wbgetentities` requests (section 4.1). It is not added to `summary`.
 - `warnings`: non-error conditions, e.g. `OVERPASS_URL is not configured; skipped osm_tags quests`.
 
 Only platforms that ran appear as keys. A dry run adds `"would_submit": [{"platform", "external_id", "author", "element_count", "quest", "team", "action"}]`.
@@ -300,7 +345,8 @@ Only platforms that ran appear as keys. A dry run adds `"would_submit": [{"platf
 
 - Every request sends `HARVEST_USER_AGENT`, a descriptive User-Agent as the OSM and Wikimedia API policies require. Override it per deployment with a contact address.
 - Every request has a timeout: 30 s for REST APIs, 90 s HTTP and `[timeout:60]` server-side for Overpass.
-- Queries are bounded: Overpass by area, `newer:`, and tags; Notes by bbox and `limit=100`; MediaWiki searches by `srlimit=50`; revisions by `rvstart`/`rvend` and `rvlimit`; GitHub by `created:>=` and `per_page=100`; Mangrove by one bbox request per run; MapRoulette by bbox, `tStatus`, `limit=200` and at most 20 pages.
+- Queries are bounded: Overpass by area, `newer:`, and tags; Notes by bbox and `limit=100`; MediaWiki searches by `srlimit=50`; revisions by `rvstart`/`rvend` and `rvlimit`; GitHub by `created:>=` and `per_page=100`; Mangrove by one bbox request per run; MapRoulette by bbox, `tStatus`, `limit=200` and at most 20 pages; Wikidata contributions by `ucstart`/`ucend`, `uclimit=100` and at most 5 pages per member.
+- `wikidata_area` makes one contributions listing per member (more pages only for very active editors) and one `wbgetentities` request per 50 newly edited items per run; watch `entity_lookups`. The targets endpoint makes at most one SPARQL query per quest every 30 minutes (per web worker), with a box filter and `LIMIT 500`, well inside the Query Service's usage policy. Every request sends `HARVEST_USER_AGENT`, which the Wikimedia User-Agent policy requires.
 - Mangrove and MapRoulette publish no rate limits and need no authentication. Each run makes one Mangrove request, and for MapRoulette one listing request per page plus one task request per new or changed qualifying task (and a profile request only when the listing lacks the completing user's name). Do not list a challenge's tasks (`/challenge/{id}/tasks`): those listings are slow and can time out; the bbox listing is what the harvester uses.
 - OSM changeset metadata is fetched once per run and cached for 24 h once the changeset is closed.
 - Element history is fetched only for `"action": "create"` quests, at most once per element per run, and again only when the element's version goes up (section 2.4). Watch `history_lookups` in the stats.

@@ -20,4 +20,10 @@ describe('useDeepLinks Composable', () => {
     expect(links.osmWebEditorUrl).toBe('https://www.openstreetmap.org/edit#map=18/37.774929/-122.419416')
     expect(links.osmWebViewUrl).toBe('https://www.openstreetmap.org/#map=18/37.774929/-122.419416')
   })
+
+  it('links to WikiShootMe at zoom 17 whatever the map zoom', () => {
+    const links = getDeepLinks(38.579, -121.4899, 18)
+    expect(links.wikiShootMeUrl).toBe('https://wikishootme.toolforge.org/#lat=38.579000&lng=-121.489900&zoom=17')
+    expect(getDeepLinks(38.579, -121.4899).wikiShootMeUrl).toContain('&zoom=17')
+  })
 })

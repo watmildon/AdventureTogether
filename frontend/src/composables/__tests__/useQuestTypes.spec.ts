@@ -15,12 +15,13 @@ import {
 } from '../useQuestTypes'
 
 describe('QUEST_TYPES map', () => {
-  it('covers all eleven criteria types with complete presentation data', () => {
+  it('covers all twelve criteria types with complete presentation data', () => {
     expect(CRITERIA_TYPES).toEqual([
       'osm_tags',
       'wikimedia_commons',
       'wikidata_entry',
       'wikidata_statement',
+      'wikidata_area',
       'location_checkin',
       'osm_notes',
       'ohm_feature',
@@ -180,6 +181,11 @@ describe('tools and canDoQuest', () => {
     expect(canDoQuest('mangrove_review', ['osm_web'])).toBe(false)
     expect(canDoQuest('maproulette_task', ['maproulette'])).toBe(true)
     expect(canDoQuest('maproulette_task', ['streetcomplete'])).toBe(false)
+    expect(canDoQuest('wikidata_area', ['wikishootme'])).toBe(true)
+    expect(canDoQuest('wikidata_area', ['wikidata'])).toBe(true)
+    expect(canDoQuest('wikidata_area', ['commons'])).toBe(false)
+    expect(canDoQuest('wikimedia_commons', ['wikishootme'])).toBe(true)
+    expect(canDoQuest('wikidata_entry', ['wikishootme'])).toBe(false)
     expect(toolsNeededText('maproulette_task')).toBe('MapRoulette (web, maproulette.org, OSM login)')
   })
 
@@ -192,6 +198,7 @@ describe('tools and canDoQuest', () => {
     expect(toolsNeededText('osm_tags')).toBe('StreetComplete, EveryDoor or OpenStreetMap web editor (iD)')
     expect(toolsNeededText('osm_notes')).toBe('OpenStreetMap web editor (iD) or StreetComplete')
     expect(toolsNeededText('wikidata_entry')).toBe('Wikidata')
+    expect(toolsNeededText('wikidata_area')).toBe('WikiShootMe (web) or Wikidata')
     expect(toolsNeededText('location_checkin')).toBe('')
   })
 })

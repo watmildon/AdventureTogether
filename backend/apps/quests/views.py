@@ -3,7 +3,7 @@ Views and API ViewSets for Quest creation and spatial querying.
 """
 
 from django.db.models import Count, Q
-from rest_framework import viewsets, permissions
+from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from .models import Quest
@@ -72,3 +72,23 @@ class QuestViewSet(viewsets.ModelViewSet):
             'extreme_value': extreme_value,
             'extreme_holder_team_ids': holders,
         })
+
+    @action(detail=True, methods=['get'])
+    def targets(self, request, pk=None):
+        """
+        For a wikidata_area quest: the Wikidata items in the quest area that still lack the
+        quest's properties (usually P18, an image), from the Wikidata Query Service and cached
+        for 30 minutes. 400 for other quest types, 502 when the query service fails.
+        """
+        from apps.submissions.services.harvest_common import HarvestError
+        from apps.submissions.services.wikidata_targets import wikidata_area_targets
+
+        quest = self.get_object()
+        if quest.criteria_type != 'wikidata_area':
+            return Response({'error': 'Targets are only available for wikidata_area quests.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            targets = wikidata_area_targets(quest)
+        except HarvestError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response({'quest': quest.id, 'count': len(targets), 'targets': targets})

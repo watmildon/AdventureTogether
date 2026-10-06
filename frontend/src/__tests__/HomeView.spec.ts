@@ -105,7 +105,7 @@ describe('HomeView (participant landing page)', () => {
   it('saves ticked tools to participant_tools', async () => {
     const wrapper = await mountHome()
     // One per TOOLS entry, including Mangrove and MapRoulette
-    expect(wrapper.findAll('.tool')).toHaveLength(10)
+    expect(wrapper.findAll('.tool')).toHaveLength(11)
     await wrapper.find('input[data-tool="everydoor"]').setValue(true)
     await wrapper.find('input[data-tool="wikidata"]').setValue(true)
     await flushPromises()
@@ -166,7 +166,7 @@ describe('Tools filter in the quest panel', () => {
     expect(ids(wrapper)).toEqual([1, 2, 3, 4])
     const commons = wrapper.find('.quest-card[data-quest-id="2"]')
     expect(commons.classes()).toContain('not-doable')
-    expect(commons.find('.needs').text()).toBe('Needs: Wikimedia Commons')
+    expect(commons.find('.needs').text()).toBe('Needs: Wikimedia Commons or WikiShootMe (web)')
     expect(wrapper.find('.quest-card[data-quest-id="1"] .needs').exists()).toBe(false)
     expect(wrapper.find('.quest-card[data-quest-id="3"] .needs').exists()).toBe(false)
   })

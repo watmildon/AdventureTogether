@@ -55,6 +55,7 @@ export type CriteriaType =
   | 'street_imagery'
   | 'mangrove_review'
   | 'maproulette_task'
+  | 'wikidata_area'
 
 /**
  * The conference session a quest is tied to. Every field is optional because quests
@@ -137,6 +138,23 @@ export interface QuestStandings {
   extreme_value: number | null
   /** Team(s) holding extreme_value (ties share the bonus). */
   extreme_holder_team_ids: number[]
+}
+
+/** One Wikidata item a wikidata_area quest still needs (no image / missing properties yet). */
+export interface QuestTarget {
+  qid: string
+  label: string
+  lat: number
+  lon: number
+  wikidata_url: string
+  wikishootme_url: string
+}
+
+/** GET /quests/<id>/targets/: the items in the quest area that still lack its properties. */
+export interface QuestTargets {
+  quest: number
+  count: number
+  targets: QuestTarget[]
 }
 
 /** Check-in status for one location_checkin quest, as reported with a location ping. */
@@ -440,6 +458,13 @@ export const api = {
   async getQuestStandings(questId: number | string): Promise<QuestStandings> {
     const res = await fetch(`${API_BASE}/quests/${questId}/standings/`)
     if (!res.ok) throw new ApiError('Failed to fetch quest standings', res.status)
+    return res.json()
+  },
+
+  /** Wikidata items a wikidata_area quest still needs (cached server-side for 30 minutes). */
+  async getQuestTargets(questId: number | string): Promise<QuestTargets> {
+    const res = await fetch(`${API_BASE}/quests/${questId}/targets/`)
+    if (!res.ok) throw new ApiError('Failed to fetch quest targets', res.status)
     return res.json()
   },
 

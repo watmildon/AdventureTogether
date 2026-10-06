@@ -134,6 +134,40 @@ describe('QuestPanel with team progress', () => {
   })
 })
 
+describe('QuestPanel wikidata_area targets', () => {
+  const pictures = quest({
+    id: 30,
+    title: 'Picture this',
+    criteria_type: 'wikidata_area',
+    target_geometry: null,
+    validation_rules: { properties: ['P18'], target_count: 3 }
+  })
+
+  it('offers the targets before they are loaded and emits toggle-targets', async () => {
+    const wrapper = mount(QuestPanel, { props: { quests: [pictures, quests[0]] } })
+    const cards = wrapper.findAll('.quest-card')
+    expect(cards[0].find('.targets-text').text()).toBe('Nearby items that need a photo')
+    expect(cards[1].find('.targets-row').exists()).toBe(false)
+    await cards[0].find('.targets-btn').trigger('click')
+    expect(wrapper.emitted('toggle-targets')?.[0]).toEqual([pictures])
+  })
+
+  it('shows the count once loaded and a hide toggle while the markers are shown', () => {
+    const wrapper = mount(QuestPanel, {
+      props: { quests: [pictures], targetsByQuest: { 30: { status: 'loaded', count: 113, shown: true } } }
+    })
+    expect(wrapper.find('.targets-text').text()).toBe('113 nearby items need a photo')
+    expect(wrapper.find('.targets-btn').text()).toBe('Hide from map')
+  })
+
+  it('disables the toggle while loading', () => {
+    const wrapper = mount(QuestPanel, {
+      props: { quests: [pictures], targetsByQuest: { 30: { status: 'loading', count: 0, shown: false } } }
+    })
+    expect(wrapper.find('.targets-btn').attributes('disabled')).toBeDefined()
+  })
+})
+
 describe('QuestPanel value scoring', () => {
   const stamps = quest({
     id: 24,

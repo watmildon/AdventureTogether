@@ -119,7 +119,7 @@ To change a quest, tap **Edit** next to it in the list. The form switches to **E
 
 ### 2.5 Verification Dashboard & Review Workflow
 1. Open the event's **Verification** tab in the back office (`/backoffice/events/<id>/verify`) to open the **Host Verification Portal**.
-2. The background harvester automatically polls OSM, OpenHistoricalMap, OSM Notes, Wikimedia Commons, Wikidata and GitHub for contributions tagged with the event hashtag. Check-ins are recorded from location pings. Use **Source Platform** to filter by platform; each platform has its own badge.
+2. The background harvester automatically polls OSM, OpenHistoricalMap, OSM Notes, Wikimedia Commons, Wikidata, GitHub, Mangrove Reviews and MapRoulette for contributions in the event area and window (most platforms are matched by the event hashtag; Wikidata, MapRoulette and check-ins are matched by the participant's usernames). Check-ins are recorded from location pings. Use **Source Platform** to filter by platform; each platform has its own badge.
 3. For each submission:
    - Inspect the **Diff Preview** to review added/modified tags and coordinates.
    - Click the external link (e.g. `#1456789 ↗`) to view the live changeset, file, revision or pull request. The date under it is when the contribution was made on that platform.

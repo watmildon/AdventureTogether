@@ -1,6 +1,7 @@
 /**
  * Composable for generating mobile deep links into external mapping tools
- * (StreetComplete and EveryDoor) centered on the participant's location.
+ * (StreetComplete and EveryDoor) centered on the participant's location, plus web links
+ * (the OSM editor and WikiShootMe).
  */
 
 export interface DeepLinkTargets {
@@ -8,6 +9,8 @@ export interface DeepLinkTargets {
   everyDoorUrl: string
   osmWebEditorUrl: string
   osmWebViewUrl: string
+  /** WikiShootMe (a website): Wikidata items nearby, red ones still need a photo. */
+  wikiShootMeUrl: string
 }
 
 export function useDeepLinks() {
@@ -27,7 +30,10 @@ export function useDeepLinks() {
 
       // Fallback web links to OpenStreetMap iD Web Editor & Browser View
       osmWebEditorUrl: `https://www.openstreetmap.org/edit#map=${zoom}/${formattedLat}/${formattedLng}`,
-      osmWebViewUrl: `https://www.openstreetmap.org/#map=${zoom}/${formattedLat}/${formattedLng}`
+      osmWebViewUrl: `https://www.openstreetmap.org/#map=${zoom}/${formattedLat}/${formattedLng}`,
+
+      // WikiShootMe at street level; zoom 17 shows a few blocks of items around you
+      wikiShootMeUrl: `https://wikishootme.toolforge.org/#lat=${formattedLat}&lng=${formattedLng}&zoom=17`
     }
   }
 

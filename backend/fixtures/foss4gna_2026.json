@@ -89,7 +89,7 @@
     },
     {
       "title": "Fill in the architect on Wikidata",
-      "description": "Open the venue item Q111393295 on wikidata.org and add architect (P84) = Julia Morgan (Q274663) and inception (P571) = 1923, each with a reference if you can. Put #FOSS4GNA2026 in the edit summary so the hunt can credit your team.",
+      "description": "Open the venue item Q111393295 on wikidata.org and add architect (P84) = Julia Morgan (Q274663) and inception (P571) = 1923, each with a reference if you can. Credit comes from your Wikimedia username on the landing page (Wikidata writes its own edit summaries), so make sure it is filled in before you edit.",
       "criteria_type": "wikidata_statement",
       "validation_rules": {
         "qid": "Q111393295",
@@ -543,7 +543,7 @@
     },
     {
       "title": "Public Market, 1923-1974",
-      "description": "There is no Wikidata item for the Sacramento Public Market. Create one with instance of (P31), coordinates (P625), architect (P84), inception (P571) and dissolved (P576), then link it from the hotel item Q111393295. Put #FOSS4GNA2026 in the edit summary so the hunt can credit your team.",
+      "description": "There is no Wikidata item for the Sacramento Public Market. Create one with instance of (P31), coordinates (P625), architect (P84), inception (P571) and dissolved (P576), then link it from the hotel item Q111393295. Credit comes from your Wikimedia username on the landing page (Wikidata writes its own edit summaries), so make sure it is filled in before you edit.",
       "criteria_type": "wikidata_entry",
       "validation_rules": {
         "target_count": 1
@@ -899,6 +899,26 @@
       "window_end": null,
       "inspired_by": {
         "code": "9NC8UG"
+      }
+    },
+    {
+      "title": "Picture this",
+      "description": "Open WikiShootMe at your location (https://wikishootme.toolforge.org/#lat=38.5790&lng=-121.4899&zoom=17 opens at the venue; \"Open WikiShootMe here\" on the hunt map opens where you are) and sign in with your Wikimedia account. Red dots are Wikidata items that have no photo yet: 113 items downtown still lack one. Pick a red item, walk there, photograph it, and upload the photo with WikiShootMe's upload link so it goes to Commons and is attached to the item as its image. Your team gets credit through the Wikimedia username you entered on the landing page, so make sure it is there. No hashtag needed.",
+      "criteria_type": "wikidata_area",
+      "validation_rules": {
+        "properties": [
+          "P18"
+        ],
+        "target_count": 3,
+        "require_hashtag": false
+      },
+      "target_geometry": null,
+      "points_reward": 30,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "JFXRQV"
       }
     }
   ],

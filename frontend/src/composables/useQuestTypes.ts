@@ -50,7 +50,7 @@ export const QUEST_TYPES: Record<CriteriaType, QuestTypeInfo> = {
     label: 'Wikidata edit',
     shortLabel: 'Wikidata',
     icon: '📊',
-    description: 'Make Wikidata edits with the event hashtag in the edit summary.',
+    description: 'Make Wikidata edits while signed in with the Wikimedia account you shared when joining.',
     helpApp: 'Wikidata',
     colorToken: '--color-type-wikidata',
     color: '#9f1239'
@@ -59,10 +59,19 @@ export const QUEST_TYPES: Record<CriteriaType, QuestTypeInfo> = {
     label: 'Wikidata statement',
     shortLabel: 'Statement',
     icon: '🧾',
-    description: 'Add specific properties to a named Wikidata item, with the event hashtag in the edit summary.',
+    description: 'Add specific properties to a named Wikidata item, signed in with the Wikimedia account you shared when joining.',
     helpApp: 'Wikidata',
     colorToken: '--color-type-wikidata-statement',
     color: '#be123c'
+  },
+  wikidata_area: {
+    label: 'Wikidata statements on items in the area (images via WikiShootMe)',
+    shortLabel: 'WikiShootMe',
+    icon: '🖼️',
+    description: 'Photograph Wikidata items in the area that have no image yet and upload with WikiShootMe, which adds the photo to the item. Sign in with the Wikimedia account you shared when joining.',
+    helpApp: 'WikiShootMe / Wikidata',
+    colorToken: '--color-type-wikidata-area',
+    color: '#e11d48'
   },
   location_checkin: {
     label: 'Location check-in',
@@ -255,6 +264,7 @@ export type ToolId =
   | 'osm_web'
   | 'commons'
   | 'wikidata'
+  | 'wikishootme'
   | 'ohm_editor'
   | 'github'
   | 'panoramax'
@@ -304,6 +314,12 @@ export const TOOLS: ToolInfo[] = [
     links: [{ label: 'Open Wikidata', url: 'https://www.wikidata.org/' }]
   },
   {
+    id: 'wikishootme',
+    label: 'WikiShootMe (web)',
+    description: 'Shows Wikidata items near you that still need a photo; upload to Commons and it adds the image to the item',
+    links: [{ label: 'Open WikiShootMe', url: 'https://wikishootme.toolforge.org/' }]
+  },
+  {
     id: 'ohm_editor',
     label: 'OpenHistoricalMap editor',
     description: 'Map how places used to be, in the browser. Sign in with your OpenStreetMap account.',
@@ -346,9 +362,10 @@ export const questTypeTools: Record<CriteriaType, ToolId[]> = {
   osm_tags: ['streetcomplete', 'everydoor', 'osm_web'],
   osm_notes: ['osm_web', 'streetcomplete'],
   ohm_feature: ['ohm_editor'],
-  wikimedia_commons: ['commons'],
+  wikimedia_commons: ['commons', 'wikishootme'],
   wikidata_entry: ['wikidata'],
   wikidata_statement: ['wikidata'],
+  wikidata_area: ['wikishootme', 'wikidata'],
   oss_contribution: ['github'],
   street_imagery: ['panoramax'],
   mangrove_review: ['mangrove'],

@@ -3,16 +3,18 @@
  * Participant-facing list of an event's quests: type, points, team progress, quest
  * window, the talk that inspired it, and a "Show on map" action. Value-scoring quests
  * also show the points the team holds, the buckets it has found (e.g. decades), its best
- * value, and whether it holds the extreme bonus.
+ * value, and whether it holds the extreme bonus. wikidata_area quests show how many nearby
+ * items still need a photo, with a toggle for their markers.
  *
  * Purely presentational: EventMapView owns the data (quests, progress, standings,
- * check-ins) and handles the map side of "Show on map".
+ * check-ins, Wikidata targets) and handles the map side of "Show on map".
  */
 import { ref, computed } from 'vue'
 import type { QuestData, QuestProgressData, QuestStandings } from '../api'
 import { questTypeFor, formatSessionLine, formatQuestWindow, canDoQuest, toolsNeededText } from '../composables/useQuestTypes'
 import type { CheckinStates } from '../composables/checkinState'
 import { questScoring, scoringSummary, bucketsLine, formatValue, extremeWord, type QuestScoring } from '../composables/valueScoring'
+import { areaProperties, targetsCardLine, type TargetsState } from '../composables/questTargets'
 
 const props = withDefaults(defineProps<{
   quests: QuestData[]
@@ -28,16 +30,22 @@ const props = withDefaults(defineProps<{
   standingsByQuest?: Map<number, QuestStandings>
   /** The participant's team, to tell whether it holds a bonus. */
   teamId?: number | null
+  /** Target-loading state of wikidata_area quests keyed by quest id (absent until first asked). */
+  targetsByQuest?: Record<number, TargetsState>
 }>(), {
   progressByQuest: () => new Map(),
   hasTeam: false,
   checkins: () => ({}),
   tools: () => [],
   standingsByQuest: () => new Map(),
-  teamId: null
+  teamId: null,
+  targetsByQuest: () => ({})
 })
 
-const emit = defineEmits<{ (e: 'show-on-map', quest: QuestData): void }>()
+const emit = defineEmits<{
+  (e: 'show-on-map', quest: QuestData): void
+  (e: 'toggle-targets', quest: QuestData): void
+}>()
 
 /**
  * "Only quests I can do": on by default once the participant has ticked any tool. With no
@@ -92,7 +100,10 @@ const allCards = computed(() =>
       needs: toolsNeededText(quest.criteria_type),
       // osm_tags quests with action "create" only count elements the participant adds
       newOnly: quest.criteria_type === 'osm_tags' && quest.validation_rules?.action === 'create',
-      scoring: scoringCard(quest, questScoring(quest), row)
+      scoring: scoringCard(quest, questScoring(quest), row),
+      targets: quest.criteria_type === 'wikidata_area'
+        ? targetsCardLine(props.targetsByQuest[quest.id], areaProperties(quest))
+        : null
     }
   })
 )
@@ -160,6 +171,18 @@ const hiddenCount = computed(() => allCards.value.length - cards.value.length)
           </div>
 
           <p v-if="!card.doable" class="quest-meta needs">Needs: {{ card.needs }}</p>
+
+          <div v-if="card.targets" class="quest-actions targets-row">
+            <span class="quest-meta targets-text">{{ card.targets.text }}</span>
+            <button
+              type="button"
+              class="btn btn-outline show-btn targets-btn"
+              :disabled="card.targets.busy"
+              @click="emit('toggle-targets', card.quest)"
+            >
+              {{ card.targets.button }}
+            </button>
+          </div>
 
           <p v-if="card.window" class="quest-meta">🕒 {{ card.window }}</p>
 

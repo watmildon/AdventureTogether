@@ -55,8 +55,34 @@ describe('composeValidationRules', () => {
     expect(composeValidationRules('wikidata_statement', form, false)).toEqual({
       qid: 'Q111393295',
       properties: ['P84', 'P571'],
-      target_count: 1
+      target_count: 1,
+      require_hashtag: false
     })
+  })
+
+  it('wikidata types: the hashtag is off by default and follows the checkbox', () => {
+    const form = defaultRuleForm()
+    expect(form.wdRequireHashtag).toBe(false)
+    expect(composeValidationRules('wikidata_entry', form, false)).toEqual({ target_count: 1, require_hashtag: false })
+    expect(composeValidationRules('wikidata_entry', { ...form, wdRequireHashtag: true }, false).require_hashtag).toBe(true)
+    // The OSM checkbox (on by default) does not leak into the Wikidata types
+    expect(composeValidationRules('wikidata_statement', { ...form, requireHashtag: true }, false).require_hashtag).toBe(false)
+  })
+
+  it('wikidata_area: properties default to P18 and are normalised', () => {
+    const form = defaultRuleForm()
+    expect(composeValidationRules('wikidata_area', form, false)).toEqual({
+      properties: ['P18'],
+      target_count: 1,
+      require_hashtag: false
+    })
+    const custom = { ...form, areaProperties: 'p18, P373', targetCount: 3, wdRequireHashtag: true }
+    expect(composeValidationRules('wikidata_area', custom, false)).toEqual({
+      properties: ['P18', 'P373'],
+      target_count: 3,
+      require_hashtag: true
+    })
+    expect(composeValidationRules('wikidata_area', { ...form, areaProperties: ' ' }, false).properties).toEqual(['P18'])
   })
 
   it('ohm_feature defaults to any start_date', () => {
@@ -110,7 +136,7 @@ describe('composeValidationRules', () => {
 
   it('count-only types and bad numbers fall back to a target_count of 1', () => {
     const form = { ...defaultRuleForm(), targetCount: NaN }
-    for (const type of ['wikidata_entry', 'osm_notes', 'street_imagery'] as const) {
+    for (const type of ['osm_notes', 'street_imagery'] as const) {
       expect(composeValidationRules(type, form, false)).toEqual({ target_count: 1 })
     }
   })
@@ -123,6 +149,9 @@ describe('validateRuleForm', () => {
     expect(validateRuleForm('wikidata_statement', form, false)).toMatch(/item id/)
     expect(validateRuleForm('wikidata_statement', { ...form, qid: 'Q1', properties: 'P84, nope' }, false)).toMatch(/property/)
     expect(validateRuleForm('wikidata_statement', { ...form, qid: 'Q1', properties: 'P84' }, false)).toBeNull()
+    expect(validateRuleForm('wikidata_area', form, false)).toBeNull()
+    expect(validateRuleForm('wikidata_area', { ...form, areaProperties: '' }, false)).toBeNull()
+    expect(validateRuleForm('wikidata_area', { ...form, areaProperties: 'P18, image' }, false)).toMatch(/P18, P373/)
     expect(validateRuleForm('oss_contribution', { ...form, kinds: { pr: false, issue: false } }, false)).toMatch(/pull requests/)
     expect(validateRuleForm('location_checkin', form, false)).toMatch(/target point/)
     expect(validateRuleForm('location_checkin', form, true)).toBeNull()
@@ -156,8 +185,12 @@ describe('rulesToForm (inverse of composeValidationRules)', () => {
     ['osm_tags', { required_tags: { highway: 'crossing', kerb: '*' }, target_count: 5, require_hashtag: true, action: 'modify' }, false],
     ['wikimedia_commons', { category: 'Capitol Park (Sacramento)', target_count: 4 }, false],
     ['wikimedia_commons', { target_count: 1 }, true],
-    ['wikidata_entry', { target_count: 2 }, true],
-    ['wikidata_statement', { qid: 'Q111393295', properties: ['P84', 'P571'], target_count: 1 }, true],
+    ['wikidata_entry', { target_count: 2, require_hashtag: false }, true],
+    ['wikidata_entry', { target_count: 1, require_hashtag: true }, false],
+    ['wikidata_statement', { qid: 'Q111393295', properties: ['P84', 'P571'], target_count: 1, require_hashtag: false }, true],
+    ['wikidata_statement', { qid: 'Q111393295', properties: ['P84'], target_count: 2, require_hashtag: true }, true],
+    ['wikidata_area', { properties: ['P18'], target_count: 3, require_hashtag: false }, false],
+    ['wikidata_area', { properties: ['P18', 'P373'], target_count: 1, require_hashtag: true }, false],
     ['osm_notes', { target_count: 3 }, false],
     ['ohm_feature', { required_tags: { start_date: '*', building: 'yes' }, target_count: 1 }, false],
     ['oss_contribution', { kinds: ['pr', 'issue'], allowed_owners: ['OSGeo', 'qgis'], target_count: 1 }, false],
@@ -198,6 +231,9 @@ describe('rulesToForm (inverse of composeValidationRules)', () => {
     expect(rulesToForm('oss_contribution', null).kinds).toEqual({ pr: true, issue: true })
     expect(rulesToForm('location_checkin', { radius_m: 'x' }).checkinRadiusM).toBe(50)
     expect(rulesToForm('mangrove_review', {}).requireHashtag).toBe(true)
+    // Seeded Wikidata quests without the key keep the hashtag off
+    expect(rulesToForm('wikidata_entry', { target_count: 1 }).wdRequireHashtag).toBe(false)
+    expect(rulesToForm('wikidata_area', {}).areaProperties).toBe('P18')
     expect(rulesToForm('maproulette_task', {}).mrStatuses).toEqual({ fixed: true, alreadyFixed: true, falsePositive: false })
     expect(rulesToForm('maproulette_task', {}).mrRequireHashtag).toBe(false)
   })

@@ -24,6 +24,7 @@ class Quest(models.Model):
         ('street_imagery', 'Street-level Imagery (Panoramax)'),
         ('mangrove_review', 'Mangrove Place Review'),
         ('maproulette_task', 'MapRoulette Task Fixed'),
+        ('wikidata_area', 'Wikidata statements on items in the area (images via WikiShootMe)'),
     ]
 
     event = models.ForeignKey(

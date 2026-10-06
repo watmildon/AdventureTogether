@@ -83,7 +83,7 @@ Behaviour:
 |---|---|---|
 | `title` | yes | Upsert key within the event. |
 | `description` | no | Participant-facing instructions. Say which app helps and that the hashtag goes in the changeset / upload comment. |
-| `criteria_type` | no | Default `osm_tags`. One of `osm_tags`, `wikimedia_commons`, `wikidata_entry`, `location_checkin`, `osm_notes`, `ohm_feature`, `wikidata_statement`, `oss_contribution`, `street_imagery`, `mangrove_review`, `maproulette_task`. |
+| `criteria_type` | no | Default `osm_tags`. One of `osm_tags`, `wikimedia_commons`, `wikidata_entry`, `location_checkin`, `osm_notes`, `ohm_feature`, `wikidata_statement`, `oss_contribution`, `street_imagery`, `mangrove_review`, `maproulette_task`, `wikidata_area`. |
 | `validation_rules` | no | Object; shape depends on the type (see below). |
 | `target_geometry` | no | Any GeoJSON geometry, or `null` for "anywhere in the event perimeter". Must intersect the event polygon. |
 | `points_reward` | no | Integer, default 10. |
@@ -97,8 +97,9 @@ Behaviour:
 |---|---|
 | `osm_tags` | `{"required_tags": {"key": "value" or "*"}, "target_count": n, "radius_m": 300, "require_hashtag": true}`; `radius_m` only when the target is a Point |
 | `wikimedia_commons` | `{"category": "optional Commons category", "target_count": n}` |
-| `wikidata_entry` | `{"target_count": n}` |
-| `wikidata_statement` | `{"qid": "Q111393295", "properties": ["P84", "P571"], "target_count": 1}` |
+| `wikidata_entry` | `{"target_count": n, "require_hashtag": false}` |
+| `wikidata_statement` | `{"qid": "Q111393295", "properties": ["P84", "P571"], "target_count": 1, "require_hashtag": false}` |
+| `wikidata_area` | `{"properties": ["P18"], "target_count": n, "require_hashtag": false}`; `require_hashtag` defaults to false on all Wikidata types |
 | `osm_notes` | `{"target_count": n}` |
 | `ohm_feature` | `{"required_tags": {"start_date": "*"}, "target_count": n}` |
 | `oss_contribution` | `{"kinds": ["pr", "issue"], "allowed_owners": ["OSGeo", "qgis", ...], "target_count": 1}` |
@@ -163,7 +164,7 @@ To find codes, open the schedule on pretalx (the code is the last part of a talk
 
 The repo ships the event file and a snapshot of the pretalx export (127 sessions) so seeding works offline:
 
-- `backend/fixtures/foss4gna_2026.json`: event, 28 quests, one demo team
+- `backend/fixtures/foss4gna_2026.json`: event, 29 quests, one demo team
 - `backend/fixtures/foss4gna_2026_schedule.json`: schedule export from `https://talks.osgeo.org/foss4g-na-2026/schedule/export/schedule.json`
 
 Native (from `backend/`, with the virtualenv active and migrations applied):

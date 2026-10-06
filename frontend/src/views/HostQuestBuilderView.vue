@@ -34,6 +34,11 @@ const selectedType = computed(() => QUEST_TYPES[criteriaType.value])
 // Per-type rule inputs; composed into validation_rules on save (see questRules.ts)
 const rules = ref(defaultRuleForm())
 
+/** Wikidata types, which share the (off by default) hashtag checkbox. */
+const isWikidataType = computed(() =>
+  ['wikidata_entry', 'wikidata_statement', 'wikidata_area'].includes(criteriaType.value)
+)
+
 /** Types whose rules carry a target_count (everything except check-ins). */
 const usesTargetCount = computed(() => criteriaType.value !== 'location_checkin')
 
@@ -572,6 +577,24 @@ onUnmounted(() => {
             <label class="form-label" for="wikidataProperties">Properties to add</label>
             <input id="wikidataProperties" v-model="rules.properties" type="text" class="form-input" placeholder="e.g. P84, P571" />
           </div>
+        </template>
+
+        <div v-if="criteriaType === 'wikidata_area'" class="form-group">
+          <label class="form-label" for="areaProperties">Properties the items should gain</label>
+          <input id="areaProperties" v-model="rules.areaProperties" type="text" class="form-input" placeholder="P18 (image); e.g. P18, P373" />
+          <p class="field-hint">
+            Counts statements added to Wikidata items whose coordinates are in the quest area. P18 (image) is what WikiShootMe adds when participants upload a photo there.
+          </p>
+        </div>
+
+        <template v-if="isWikidataType">
+          <label class="checkbox-row">
+            <input id="wdRequireHashtag" v-model="rules.wdRequireHashtag" type="checkbox" />
+            Require the event hashtag in the edit summary
+          </label>
+          <p class="field-hint">
+            Wikidata and WikiShootMe write their own edit summaries, so leave this off unless participants were told to add the hashtag. Edits are credited through the Wikimedia usernames members share.
+          </p>
         </template>
 
         <template v-if="criteriaType === 'oss_contribution'">

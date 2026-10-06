@@ -175,7 +175,8 @@ Q_CLUSTER = {
 }
 
 # Cache
-# Process-local in-memory cache; used e.g. for parsed conference schedule exports.
+# Process-local in-memory cache; used e.g. for parsed conference schedule exports and the
+# Wikidata items wikidata_area quests target.
 # Swap for a shared backend (database / memcached) if multiple web workers need to share it.
 CACHES = {
     'default': {
@@ -197,6 +198,8 @@ OHM_OVERPASS_URL = os.environ.get(
 )
 WIKIMEDIA_COMMONS_API = os.environ.get('WIKIMEDIA_COMMONS_API', 'https://commons.wikimedia.org/w/api.php')
 WIKIDATA_API = os.environ.get('WIKIDATA_API', 'https://www.wikidata.org/w/api.php')
+# Wikidata Query Service, for the items a wikidata_area quest still needs (quest targets endpoint).
+WIKIDATA_SPARQL = os.environ.get('WIKIDATA_SPARQL', 'https://query.wikidata.org/sparql')
 PANORAMAX_API = os.environ.get('PANORAMAX_API', 'https://api.panoramax.xyz/api')
 MANGROVE_API = os.environ.get('MANGROVE_API', 'https://api.mangrove.reviews')
 MAPROULETTE_API = os.environ.get('MAPROULETTE_API', 'https://maproulette.org/api/v2')

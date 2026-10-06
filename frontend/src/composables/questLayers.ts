@@ -8,7 +8,7 @@
  */
 
 import L from 'leaflet'
-import type { QuestData } from '../api'
+import type { QuestData, QuestTarget } from '../api'
 import { questTypeFor, formatSessionLine, formatQuestWindow } from './useQuestTypes'
 
 /** Escapes text for safe interpolation into Leaflet popup HTML. */
@@ -81,6 +81,28 @@ export function createQuestLayer(
     pointToLayer: (_feature, latlng) => L.circleMarker(latlng, pointStyle),
     style: (feature) => (/Point$/.test(feature?.geometry?.type ?? '') ? pointStyle : outlineStyle)
   }).bindPopup(popupHtml)
+}
+
+/** Popup body of a wikidata_area target marker: label, "Open in WikiShootMe" and the Wikidata link. */
+export function targetPopupHtml(target: QuestTarget): string {
+  return [
+    `<div class="target-popup"><strong>${escapeHtml(target.label)}</strong>`,
+    `<a href="${escapeHtml(target.wikishootme_url)}" target="_blank" rel="noopener">Open in WikiShootMe</a>`,
+    `<a href="${escapeHtml(target.wikidata_url)}" target="_blank" rel="noopener">Wikidata (${escapeHtml(target.qid)})</a></div>`
+  ].join('<br/>')
+}
+
+/**
+ * The items a wikidata_area quest still needs, as small hollow circles in the quest type's
+ * colour (so they read as "to do" next to the filled quest targets), each with a popup.
+ */
+export function createWikidataTargetsLayer(targets: QuestTarget[], color: string): L.LayerGroup {
+  return L.layerGroup(
+    targets.map((target) =>
+      L.circleMarker([target.lat, target.lon], { radius: 5, color, weight: 2, opacity: 0.9, fillOpacity: 0 })
+        .bindPopup(targetPopupHtml(target))
+    )
+  )
 }
 
 /** Pans/zooms the map to a quest layer and opens its popup. */

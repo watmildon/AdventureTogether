@@ -68,9 +68,9 @@ describe('HostQuestBuilderView', () => {
     api.createQuest.mockImplementation(async (payload: any) => ({ id: 99, is_active: true, ...payload }))
   })
 
-  it('offers all eleven quest types', async () => {
+  it('offers all twelve quest types', async () => {
     const wrapper = await mountBuilder()
-    expect(wrapper.findAll('#criteriaType option')).toHaveLength(11)
+    expect(wrapper.findAll('#criteriaType option')).toHaveLength(12)
   })
 
   it('composes osm_tags rules from tag rows and target count', async () => {
@@ -172,7 +172,8 @@ describe('HostQuestBuilderView', () => {
     expect(api.createQuest.mock.calls[0][0].validation_rules).toEqual({
       qid: 'Q111393295',
       properties: ['P84', 'P571'],
-      target_count: 2
+      target_count: 2,
+      require_hashtag: false
     })
     expect(api.createQuest.mock.calls[0][0].inspired_by).toEqual({})
   })
@@ -208,6 +209,43 @@ describe('HostQuestBuilderView', () => {
       require_hashtag: false,
       challenge_ids: [56424]
     })
+  })
+
+  it('composes wikidata_area rules with P18 by default and the hashtag off', async () => {
+    const wrapper = await mountBuilder()
+    await wrapper.find('#questTitle').setValue('Picture this')
+    await wrapper.find('#questDesc').setValue('Photograph items without an image.')
+    await wrapper.find('#criteriaType').setValue('wikidata_area')
+    expect((wrapper.find('#areaProperties').element as HTMLInputElement).value).toBe('P18')
+    expect((wrapper.find('#wdRequireHashtag').element as HTMLInputElement).checked).toBe(false)
+    await wrapper.find('#targetCount').setValue(3)
+    await wrapper.find('.btn-primary.btn-block').trigger('click')
+    await flushPromises()
+    expect(api.createQuest.mock.calls[0][0].validation_rules).toEqual({
+      properties: ['P18'],
+      target_count: 3,
+      require_hashtag: false
+    })
+
+    await wrapper.find('#questTitle').setValue('Pictures and categories')
+    await wrapper.find('#questDesc').setValue('Images and Commons categories.')
+    await wrapper.find('#criteriaType').setValue('wikidata_area')
+    await wrapper.find('#areaProperties').setValue('P18, p373')
+    await wrapper.find('#wdRequireHashtag').setValue(true)
+    await wrapper.find('.btn-primary.btn-block').trigger('click')
+    await flushPromises()
+    expect(api.createQuest.mock.calls.at(-1)[0].validation_rules).toMatchObject({
+      properties: ['P18', 'P373'],
+      require_hashtag: true
+    })
+  })
+
+  it('shows the hashtag checkbox, off, for wikidata_entry but not for OSM-only blocks', async () => {
+    const wrapper = await mountBuilder()
+    expect(wrapper.find('#wdRequireHashtag').exists()).toBe(false)
+    await wrapper.find('#criteriaType').setValue('wikidata_entry')
+    expect((wrapper.find('#wdRequireHashtag').element as HTMLInputElement).checked).toBe(false)
+    expect(wrapper.find('#areaProperties').exists()).toBe(false)
   })
 
   it('saves street_imagery as inactive', async () => {

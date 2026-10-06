@@ -5,8 +5,9 @@
  *   osm_tags           {required_tags, target_count, require_hashtag, radius_m (point targets only),
  *                       action (only when not "any")}
  *   wikimedia_commons  {category?, target_count}
- *   wikidata_entry     {target_count}
- *   wikidata_statement {qid, properties, target_count}
+ *   wikidata_entry     {target_count, require_hashtag}
+ *   wikidata_statement {qid, properties, target_count, require_hashtag}
+ *   wikidata_area      {properties, target_count, require_hashtag}
  *   osm_notes          {target_count}
  *   ohm_feature        {required_tags, target_count}
  *   oss_contribution   {kinds, allowed_owners?, target_count}
@@ -118,6 +119,13 @@ export interface RuleForm {
   challengeIds: string
   /** maproulette_task require_hashtag; off by default since MapRoulette edits rarely carry it. */
   mrRequireHashtag: boolean
+  /** wikidata_area: comma- or space-separated property ids the items must gain (P18 = image). */
+  areaProperties: string
+  /**
+   * require_hashtag of the Wikidata types; off by default since Wikidata (and WikiShootMe) write
+   * their own edit summaries and edits are credited through members' Wikimedia usernames.
+   */
+  wdRequireHashtag: boolean
   /** validation_rules.scoring, for every type. */
   scoring: ScoringForm
 }
@@ -145,6 +153,8 @@ export function defaultRuleForm(): RuleForm {
     mrStatuses: { fixed: true, alreadyFixed: true, falsePositive: false },
     challengeIds: '',
     mrRequireHashtag: false,
+    areaProperties: 'P18',
+    wdRequireHashtag: false,
     scoring: defaultScoringForm()
   }
 }
@@ -215,12 +225,20 @@ function composeTypeRules(type: CriteriaType, form: RuleForm, hasPointTarget: bo
       }
     case 'wikimedia_commons':
       return form.category.trim() ? { category: form.category.trim(), target_count } : { target_count }
+    case 'wikidata_entry':
+      return { target_count, require_hashtag: form.wdRequireHashtag }
     case 'wikidata_statement':
       return {
         qid: form.qid.trim().toUpperCase(),
         properties: splitList(form.properties).map((p) => p.toUpperCase()),
-        target_count
+        target_count,
+        require_hashtag: form.wdRequireHashtag
       }
+    case 'wikidata_area': {
+      // A blank list means the backend default, P18 (image)
+      const properties = splitList(form.areaProperties).map((p) => p.toUpperCase())
+      return { properties: properties.length ? properties : ['P18'], target_count, require_hashtag: form.wdRequireHashtag }
+    }
     case 'ohm_feature':
       return { required_tags: tagsToObject(form.ohmTags), target_count }
     case 'oss_contribution': {
@@ -252,7 +270,6 @@ function composeTypeRules(type: CriteriaType, form: RuleForm, hasPointTarget: bo
         ...(challengeIds.length ? { challenge_ids: challengeIds } : {})
       }
     }
-    case 'wikidata_entry':
     case 'osm_notes':
     case 'street_imagery':
     default:
@@ -267,8 +284,9 @@ function composeTypeRules(type: CriteriaType, form: RuleForm, hasPointTarget: bo
 export const MODELLED_RULE_KEYS: Record<CriteriaType, string[]> = {
   osm_tags: ['required_tags', 'target_count', 'require_hashtag', 'radius_m', 'action', 'scoring'],
   wikimedia_commons: ['category', 'target_count', 'scoring'],
-  wikidata_entry: ['target_count', 'scoring'],
-  wikidata_statement: ['qid', 'properties', 'target_count', 'scoring'],
+  wikidata_entry: ['target_count', 'require_hashtag', 'scoring'],
+  wikidata_statement: ['qid', 'properties', 'target_count', 'require_hashtag', 'scoring'],
+  wikidata_area: ['properties', 'target_count', 'require_hashtag', 'scoring'],
   osm_notes: ['target_count', 'scoring'],
   ohm_feature: ['required_tags', 'target_count', 'scoring'],
   oss_contribution: ['kinds', 'allowed_owners', 'target_count', 'scoring'],
@@ -351,9 +369,18 @@ export function rulesToForm(type: CriteriaType, rules: Record<string, any> | nul
     case 'wikimedia_commons':
       form.category = typeof r.category === 'string' ? r.category : ''
       break
+    case 'wikidata_entry':
+      form.wdRequireHashtag = r.require_hashtag === true
+      break
     case 'wikidata_statement':
       form.qid = typeof r.qid === 'string' ? r.qid : ''
       form.properties = listText(r.properties)
+      form.wdRequireHashtag = r.require_hashtag === true
+      break
+    case 'wikidata_area':
+      // The harvester treats missing/empty properties as P18
+      form.areaProperties = listText(r.properties) || 'P18'
+      form.wdRequireHashtag = r.require_hashtag === true
       break
     case 'oss_contribution': {
       // The harvester treats missing/empty kinds as both
@@ -421,6 +448,8 @@ function validateTypeRules(type: CriteriaType, form: RuleForm, hasPointTarget: b
       if (!props.length || props.some((p) => !/^P\d+$/i.test(p))) return 'Enter property ids such as P84, P571.'
       return null
     }
+    case 'wikidata_area':
+      return splitList(form.areaProperties).every((p) => /^P\d+$/i.test(p)) ? null : 'Enter property ids such as P18, P373.'
     case 'oss_contribution':
       return form.kinds.pr || form.kinds.issue ? null : 'Pick pull requests, issues, or both.'
     case 'location_checkin':

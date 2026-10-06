@@ -33,8 +33,9 @@ If the platform username doesn't match a member, the harvester falls back to `us
 | `osm_notes` | OSM Note closed during the event with the hashtag in a comment | `osm_notes` | `osm_username` | Harvested |
 | `ohm_feature` | OpenHistoricalMap changeset with the hashtag that left dated features | `ohm` | `osm_username` | Harvested |
 | `wikimedia_commons` | Commons upload whose description has the hashtag | `commons` | `wikimedia_username` | Harvested |
-| `wikidata_entry` | Any Wikidata edit with the hashtag in its summary | `wikidata` | `wikimedia_username` | Harvested |
-| `wikidata_statement` | Edit to one named item, with the hashtag, touching given properties | `wikidata` | `wikimedia_username` | Harvested |
+| `wikidata_entry` | Any Wikidata edit by a member (hashtag optional, off by default) | `wikidata` | `wikimedia_username` | Harvested |
+| `wikidata_statement` | Edit to one named item touching given properties (hashtag optional, off by default) | `wikidata` | `wikimedia_username` | Harvested |
+| `wikidata_area` | Statement (P18 image by default) added to an item located in the area, e.g. via WikiShootMe | `wikidata` | `wikimedia_username` | Harvested |
 | `oss_contribution` | GitHub pull request or issue with the hashtag | `github` | `github_username` | Harvested |
 | `mangrove_review` | Mangrove review of a place in the area, with the hashtag | `mangrove` | review nickname = `display_name` | Harvested |
 | `maproulette_task` | MapRoulette task in the area fixed during the event | `maproulette` | `osm_username` | Harvested |
@@ -190,22 +191,23 @@ Note: `target_geometry` is not checked against the file's location. If an event 
 
 ## `wikidata_entry`: any Wikidata edit
 
-Credits a team for any Wikidata edit whose edit summary contains the hashtag.
+Credits a team for Wikidata edits its members make during the event.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `target_count` | int | 1 | Revisions needed. |
+| `require_hashtag` | bool | `false` | Require the event hashtag in the edit summary. Wikidata's UI writes automatic summaries, so a normal edit never carries it; leave this off unless participants were told to type it. |
 
-**Evidence.** One submission per revision. The `external_id` is the revision id, the link is `https://www.wikidata.org/w/index.php?diff={revid}`, and `diff_payload` is `{entity_id, revid, comment}`. Candidate edits come from a hashtag search and from the contributions of members who shared a `wikimedia_username`. Edit summaries are not searchable, so members **must** share their username for this quest to work reliably. If several `wikidata_entry` quests are open, a revision is credited to the first of them only.
+**Evidence.** One submission per revision. The `external_id` is the revision id, the link is `https://www.wikidata.org/w/index.php?diff={revid}`, and `diff_payload` is `{entity_id, revid, comment}`. Candidate edits are the in-window contributions of members who shared a `wikimedia_username`, so members **must** share their username (on the landing page or when joining) to be credited. With `require_hashtag: true` a hashtag search of items is added (it finds non-members' tagged edits too) and only revisions whose summary has the hashtag count. If several `wikidata_entry` quests are open, a revision is credited to the first of them only.
 
 **Credit.** The revision `user`, matched against `wikimedia_username`.
 
 ```json
 {
   "title": "Any Wikidata improvement",
-  "description": "Improve a Wikidata item about downtown Sacramento. Add #FOSS4GNA2026 to the edit summary.",
+  "description": "Improve a Wikidata item about downtown Sacramento, signed in with the Wikimedia account you shared.",
   "criteria_type": "wikidata_entry",
-  "validation_rules": {"target_count": 1},
+  "validation_rules": {"target_count": 1, "require_hashtag": false},
   "points_reward": 15
 }
 ```
@@ -214,13 +216,14 @@ Credits a team for any Wikidata edit whose edit summary contains the hashtag.
 
 ## `wikidata_statement`: statement on a named item
 
-Credits a team for an edit to one specific Wikidata item that has the hashtag in its summary and touches one of the listed properties.
+Credits a team for an edit to one specific Wikidata item that touches one of the listed properties.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `qid` | string | required | The item, e.g. `Q111393295`. Quests without a `qid` are skipped with a warning. |
-| `properties` | list of strings | `[]` | Property ids, e.g. `["P84", "P571"]`. The summary must mention at least one of them as a whole token. Wikidata's automatic summaries contain `[[Property:P84]]`. An empty list accepts any hashtag edit to the item. |
+| `properties` | list of strings | `[]` | Property ids, e.g. `["P84", "P571"]`. The summary must mention at least one of them as a whole token. Wikidata's automatic summaries contain `[[Property:P84]]`. An empty list accepts any qualifying edit to the item. |
 | `target_count` | int | 1 | Qualifying revisions needed. |
+| `require_hashtag` | bool | `false` | Require the event hashtag in the edit summary. Off: only revisions by members who shared a `wikimedia_username` count. On: any revision whose summary has the hashtag counts (non-members' are stored without a team). |
 
 **Evidence.** One submission per (revision, quest), with `diff_payload` `{qid, revid, properties_touched, comment}`.
 
@@ -231,10 +234,55 @@ Creating a *new* item (plan quest 15) has no QID in advance, so it is not covere
 ```json
 {
   "title": "Fill in the architect on Wikidata",
-  "description": "Add architect (P84) = Julia Morgan and inception (P571) = 1923 to Q111393295, with #FOSS4GNA2026 in the summary.",
+  "description": "Add architect (P84) = Julia Morgan and inception (P571) = 1923 to Q111393295.",
   "criteria_type": "wikidata_statement",
   "validation_rules": {"qid": "Q111393295", "properties": ["P84", "P571"], "target_count": 2},
   "points_reward": 25
+}
+```
+
+---
+
+## `wikidata_area`: statements on items in the area (images via WikiShootMe)
+
+Credits a team for adding a statement, usually an image (P18), to Wikidata items whose coordinates (P625) are inside the quest area. It is built for [WikiShootMe](https://wikishootme.toolforge.org/), which maps the Wikidata items around you and colours the ones without an image red. Downtown Sacramento (the FOSS4G NA 2026 perimeter) had 218 items with coordinates in October 2026, 113 of them without a photo.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `properties` | list of strings | `["P18"]` | Property ids the items should gain, e.g. `["P18", "P373"]` (image, Commons category). Ids that are not `P<digits>` are ignored. |
+| `target_count` | int | 1 | Items needed. |
+| `require_hashtag` | bool | `false` | Require the event hashtag in the edit summary. WikiShootMe writes its own summary (`..., #wikishootme`), so leave this off. |
+| `radius_m` | number | 300 | When `target_geometry` is a Point: how close the item must be. |
+
+**Evidence.** The proof is the item gaining the statement from a member's account: the photo itself lands on Commons. One submission per (item, quest): `external_id` `{qid}/q{quest}`, linked to `https://www.wikidata.org/wiki/{qid}`, `contributed_at` = the revision time, `element_count` 1, with `diff_payload` `{qid, label, properties_touched, revid, comment, lat, lon}` (`label` is the English label, left out when the item has none). An edit counts when:
+
+- it is in a member's contributions inside the window (members must share a `wikimedia_username`);
+- its automatic summary starts with `/* wbsetclaim-create` (new statement from the Wikidata UI or the Commons app), `/* wbcreateclaim-create` (new statement from an API tool such as WikiShootMe) or `/* wbsetclaim-update` (changed statement value). Removals, qualifier or reference edits and whole-item edits (`wbeditentity-*`) do not count;
+- the summary mentions one of `properties` as a whole token (`[[Property:P18]]`);
+- the item's P625 is inside the quest area.
+
+Editing the same item twice still makes one submission; the earliest qualifying edit is the one credited.
+
+**Credit.** The member whose contributions held the edit, matched against `wikimedia_username`.
+
+**Targets.** `GET /api/quests/{id}/targets/` lists the items in the area that still lack every configured property, with WikiShootMe and Wikidata links. On the participant map, the quest card shows "N nearby items need a photo" and a toggle that draws them as small hollow circles.
+
+**The WikiShootMe workflow** (worth putting in the quest description):
+
+1. Open WikiShootMe at your location (the map sidebar has "Open WikiShootMe here") and sign in with your Wikimedia account.
+2. Pick a red item: it has coordinates but no image.
+3. Walk there and take the photo.
+4. Upload it with the item's "upload" link in WikiShootMe. It uploads the file to Commons and sets P18 on the item for you.
+5. Or upload to Commons yourself (Commons app or Upload Wizard) and add the image (P18) to the item by hand on wikidata.org.
+
+```json
+{
+  "title": "Picture this",
+  "description": "Open WikiShootMe at your location, photograph a red item and upload it through WikiShootMe so the image is added to the item.",
+  "criteria_type": "wikidata_area",
+  "target_geometry": null,
+  "validation_rules": {"properties": ["P18"], "target_count": 3, "require_hashtag": false},
+  "points_reward": 30
 }
 ```
 

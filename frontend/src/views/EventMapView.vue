@@ -7,7 +7,9 @@ import { useGeolocation, clearSimulatedPosition, type VisibilityTier } from '../
 import { useDeepLinks } from '../composables/useDeepLinks'
 import { useQuestProgress, readStoredTeam } from '../composables/useQuestProgress'
 import { mergePingCheckins, mergeRecordedCheckins, questMinMinutes, type CheckinStates } from '../composables/checkinState'
-import { createQuestLayer, questPopupHtml, focusQuestLayer } from '../composables/questLayers'
+import { createQuestLayer, questPopupHtml, focusQuestLayer, createWikidataTargetsLayer } from '../composables/questLayers'
+import type { TargetsState } from '../composables/questTargets'
+import { questTypeFor } from '../composables/useQuestTypes'
 import { readTools } from '../composables/participantProfile'
 import { questScoring } from '../composables/valueScoring'
 import QuestPanel from '../components/QuestPanel.vue'
@@ -93,6 +95,10 @@ let teammateMarkersGroup: L.LayerGroup | null = null
 let questsLayerGroup: L.LayerGroup | null = null
 const questLayers = new Map<number, L.Layer>()
 let pollTimer: any = null
+
+// Wikidata items wikidata_area quests still need, fetched the first time a card asks for them
+const targetsByQuest = ref<Record<number, TargetsState>>({})
+const targetLayers = new Map<number, L.LayerGroup>()
 
 const deepLinks = computed(() => {
   if (coords.value) {
@@ -202,6 +208,45 @@ const showQuestOnMap = (quest: QuestData) => {
   if (!map || !layer) return
   document.getElementById('map')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   focusQuestLayer(map, layer)
+}
+
+const setTargetsState = (questId: number, state: TargetsState) => {
+  targetsByQuest.value = { ...targetsByQuest.value, [questId]: state }
+}
+
+/**
+ * Shows or hides a wikidata_area quest's target items. The first use fetches them (a failure
+ * can be retried); later uses only add or remove the markers.
+ */
+const toggleTargets = async (quest: QuestData) => {
+  if (!map) return
+  const state = targetsByQuest.value[quest.id]
+  if (state?.status === 'loading') return
+
+  const existing = targetLayers.get(quest.id)
+  if (existing && state) {
+    if (state.shown) map.removeLayer(existing)
+    else existing.addTo(map)
+    setTargetsState(quest.id, { ...state, shown: !state.shown })
+    return
+  }
+
+  setTargetsState(quest.id, { status: 'loading', count: 0, shown: false })
+  try {
+    const data = await api.getQuestTargets(quest.id)
+    if (!map) return
+    const layer = createWikidataTargetsLayer(data.targets, questTypeFor(quest.criteria_type).color)
+    targetLayers.set(quest.id, layer)
+    layer.addTo(map)
+    setTargetsState(quest.id, { status: 'loaded', count: data.count, shown: true })
+    if (data.targets.length) {
+      document.getElementById('map')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      const bounds = L.latLngBounds(data.targets.map((t) => [t.lat, t.lon] as L.LatLngTuple))
+      map.fitBounds(bounds, { padding: [30, 30], maxZoom: 17 })
+    }
+  } catch {
+    setTargetsState(quest.id, { status: 'error', count: 0, shown: false })
+  }
 }
 
 const pollActiveLocations = async () => {
@@ -405,7 +450,9 @@ onUnmounted(() => {
             :has-team="Boolean(teamId)"
             :checkins="checkins"
             :tools="participantTools"
+            :targets-by-quest="targetsByQuest"
             @show-on-map="showQuestOnMap"
+            @toggle-targets="toggleTargets"
           />
         </div>
 
@@ -443,6 +490,16 @@ onUnmounted(() => {
               class="btn btn-outline btn-block deep-link-btn"
             >
               🌐 Open OSM Web iD Editor
+            </a>
+
+            <!-- A website, not an app: a plain link, no custom-scheme fallback -->
+            <a
+              :href="deepLinks.wikiShootMeUrl"
+              target="_blank"
+              rel="noopener"
+              class="btn btn-outline btn-block deep-link-btn wikishootme-link"
+            >
+              📷 Open WikiShootMe here
             </a>
           </div>
 

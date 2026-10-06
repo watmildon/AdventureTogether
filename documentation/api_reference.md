@@ -225,10 +225,11 @@ Creates a new quest. Rejects target geometries outside the event's bounding peri
 ```
 
 **Fields**:
-- `criteria_type`: one of `osm_tags`, `wikimedia_commons`, `wikidata_entry`, `location_checkin`, `osm_notes`, `ohm_feature`, `wikidata_statement`, `oss_contribution`, `street_imagery`, `mangrove_review`, `maproulette_task`.
+- `criteria_type`: one of `osm_tags`, `wikimedia_commons`, `wikidata_entry`, `location_checkin`, `osm_notes`, `ohm_feature`, `wikidata_statement`, `oss_contribution`, `street_imagery`, `mangrove_review`, `maproulette_task`, `wikidata_area`.
 - `inspired_by` (optional object, default `{}`): the conference session behind the quest, in the shape returned by `GET /api/events/<id>/sessions/` (minus `type`). Must be a JSON object.
 - `window_start` / `window_end` (optional, nullable): a quest-specific time window inside the event window, e.g. a Monday-evening-only check-in. `window_end` must not precede `window_start`.
 - `target_count` (read-only in responses): number of verified contributions needed to complete the quest, taken from `validation_rules.target_count` (minimum and default 1).
+- `validation_rules.require_hashtag` on the Wikidata types (`wikidata_entry`, `wikidata_statement`, `wikidata_area`): default `false`, because Wikidata writes automatic edit summaries. Edits are then credited through members' `wikimedia_username`; `true` also requires the event hashtag in the summary. `wikidata_area` additionally takes `properties` (default `["P18"]`). See `documentation/quest_types.md`.
 - `validation_rules.scoring` (optional, any type): value scoring, i.e. points per distinct bucket of values and a bonus for the extreme value. A malformed block is rejected with 400: bad `value.source`, `kind` or regex `pattern`, a non-positive `per_bucket.size`, or a bad `extreme_bonus.direction`. See `documentation/quest_types.md`.
 
 ### `GET /api/quests/<id>/standings/`
@@ -248,6 +249,29 @@ Every team's standing on one quest, most `awarded_points` first. Teams without v
 ```
 
 `verified_count` is the number of the team's verified submissions on the quest.
+
+### `GET /api/quests/<id>/targets/`
+For a `wikidata_area` quest: the Wikidata items inside the quest area (its Point radius, its polygon, or the event perimeter when it has no geometry) that have coordinates (P625) but lack every one of the quest's `properties` (usually P18, an image), so participants know what to photograph. The server runs one SPARQL query against the Wikidata Query Service (`WIKIDATA_SPARQL`), at most 500 items, sorted by label, and caches the answer for 30 minutes per quest and rules.
+
+**Response (200 OK)**:
+```json
+{
+  "quest": 44,
+  "count": 113,
+  "targets": [
+    {
+      "qid": "Q120703964",
+      "label": "1021 O Street",
+      "lat": 38.575001,
+      "lon": -121.495082,
+      "wikidata_url": "https://www.wikidata.org/wiki/Q120703964",
+      "wikishootme_url": "https://wikishootme.toolforge.org/#lat=38.575001&lng=-121.495082&zoom=18"
+    }
+  ]
+}
+```
+
+`label` falls back to the QID when the item has no English label. Returns 400 for quests of any other type and 502 (`{"error": "Wikidata query request failed: ..."}`) when the Query Service fails or times out (60 s); failures are not cached.
 
 ### `DELETE /api/quests/<id>/`
 Deletes the quest and its team progress rows. Every team loses the points it held from the quest (`awarded_points`: completion, bucket and bonus points), with the score floored at 0. The quest's submissions are kept with `quest = null`.
@@ -305,7 +329,7 @@ Host endpoint to verify (or, with `"is_verified": false`, un-verify) a submissio
 `extracted_value` is optional. When given, it replaces the submission's harvested value with the host's correction (`null` clears it). Later harvests keep it. Leave the key out to keep the current value.
 
 ### `POST /api/submissions/trigger_harvest/`
-Runs a harvest synchronously for the event and returns `{"message", "stats"}`. `stats` holds one `{harvested, created, updated, matched, errors}` entry per platform that ran (`osm`, `ohm`, `osm_notes`, `commons`, `wikidata`, `github`, `mangrove`, `maproulette`; `osm`/`ohm` add `history_lookups` and `maproulette` adds `detail_lookups`), plus `summary` (totals), `warnings`, `event`, `found` and `dry_run`. Returns 400 if `event` is missing or not an integer, and 404 (with `stats`) if the event does not exist or is inactive. Only the platforms the event's active quests need are contacted. See `documentation/harvesters.md`.
+Runs a harvest synchronously for the event and returns `{"message", "stats"}`. `stats` holds one `{harvested, created, updated, matched, errors}` entry per platform that ran (`osm`, `ohm`, `osm_notes`, `commons`, `wikidata`, `github`, `mangrove`, `maproulette`; `osm`/`ohm` add `history_lookups`, `maproulette` adds `detail_lookups` and `wikidata` adds `entity_lookups` when `wikidata_area` quests ran), plus `summary` (totals), `warnings`, `event`, `found` and `dry_run`. Returns 400 if `event` is missing or not an integer, and 404 (with `stats`) if the event does not exist or is inactive. Only the platforms the event's active quests need are contacted. See `documentation/harvesters.md`.
 
 **Payload**:
 ```json

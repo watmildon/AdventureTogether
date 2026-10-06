@@ -15,6 +15,7 @@ vi.mock('../api', async (importOriginal) => {
       getCheckins: vi.fn(),
       getLeaderboard: vi.fn(),
       getTeamProgress: vi.fn(),
+      getQuestTargets: vi.fn(),
       pingLocation: vi.fn()
     }
   }
@@ -32,6 +33,13 @@ vi.mock('leaflet', async (importOriginal) => {
   }
   const patched = { ...L, circle: inertLayer, circleMarker: inertLayer }
   return { ...actual, ...patched, default: patched }
+})
+
+// The target markers are Leaflet vectors too; hand back a stand-in so their add/remove can be seen
+const targetsLayer = { addTo: vi.fn() }
+vi.mock('../composables/questLayers', async (importOriginal) => {
+  const actual: any = await importOriginal()
+  return { ...actual, createWikidataTargetsLayer: vi.fn(() => targetsLayer) }
 })
 
 const quest = (id: number, title: string, minMinutes = 0): QuestData => ({
@@ -150,5 +158,41 @@ describe('EventMapView', () => {
     expect(card(13)).not.toContain("You're here")
     expect(card(14)).toContain("You're here")
     expect(card(14)).not.toContain('Checked in')
+  })
+
+  it('fetches wikidata_area targets on the first toggle only', async () => {
+    const { api } = await import('../api')
+    vi.mocked(api.getQuests).mockResolvedValue([
+      { ...quest(30, 'Picture this'), criteria_type: 'wikidata_area', validation_rules: { properties: ['P18'] } }
+    ])
+    vi.mocked(api.getQuestTargets).mockResolvedValue({ quest: 30, count: 113, targets: [] })
+
+    const view = await mountMap(2)
+    const card = () => view.find('.quest-card[data-quest-id="30"]')
+    expect(api.getQuestTargets).not.toHaveBeenCalled()
+
+    await card().find('.targets-btn').trigger('click')
+    await flushPromises()
+    expect(api.getQuestTargets).toHaveBeenCalledWith(30)
+    expect(targetsLayer.addTo).toHaveBeenCalledTimes(1)
+    expect(card().find('.targets-text').text()).toBe('113 nearby items need a photo')
+    expect(card().find('.targets-btn').text()).toBe('Hide from map')
+
+    await card().find('.targets-btn').trigger('click')
+    await card().find('.targets-btn').trigger('click')
+    await flushPromises()
+    expect(api.getQuestTargets).toHaveBeenCalledTimes(1)
+    expect(targetsLayer.addTo).toHaveBeenCalledTimes(2)
+    expect(card().find('.targets-btn').text()).toBe('Hide from map')
+  })
+
+  it('links to WikiShootMe at the participant position', async () => {
+    localStorage.setItem('simulated_gps', JSON.stringify({ lat: 38.579, lng: -121.4899 }))
+    vi.mocked((await import('../api')).api.pingLocation).mockResolvedValue({} as any)
+    const view = await mountMap(2)
+    const link = view.find('a.wikishootme-link')
+    expect(link.attributes('href')).toBe('https://wikishootme.toolforge.org/#lat=38.579000&lng=-121.489900&zoom=17')
+    expect(link.attributes('target')).toBe('_blank')
+    expect(link.text()).toContain('Open WikiShootMe here')
   })
 })

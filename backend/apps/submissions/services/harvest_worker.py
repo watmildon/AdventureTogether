@@ -22,7 +22,7 @@ from .mangrove_harvester import harvest_mangrove
 from .maproulette_harvester import harvest_maproulette
 from .osm_notes_harvester import harvest_osm_notes
 from .overpass_harvester import harvest_ohm_features, harvest_osm_tags
-from .wikidata_harvester import harvest_wikidata_entries, harvest_wikidata_statements
+from .wikidata_harvester import harvest_wikidata_area, harvest_wikidata_entries, harvest_wikidata_statements
 from .wikimedia_harvester import harvest_commons
 
 logger = logging.getLogger('apps.submissions.harvest')
@@ -36,6 +36,7 @@ HARVESTERS: 'OrderedDict[str, tuple]' = OrderedDict([
     ('wikimedia_commons', ('commons', harvest_commons)),
     ('wikidata_entry', ('wikidata', harvest_wikidata_entries)),
     ('wikidata_statement', ('wikidata', harvest_wikidata_statements)),
+    ('wikidata_area', ('wikidata', harvest_wikidata_area)),
     ('oss_contribution', ('github', harvest_github)),
     ('mangrove_review', ('mangrove', harvest_mangrove)),
     ('maproulette_task', ('maproulette', harvest_maproulette)),

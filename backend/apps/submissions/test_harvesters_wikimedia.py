@@ -128,6 +128,8 @@ WD_VENUE_REVS = {'query': {'pages': {'111393295': {'title': 'Q111393295', 'revis
      'comment': '/* wbsetclaim-create:2||1 */ [[Property:P31]]: [[Q41176]] #FOSS4GNA2026'},
     {'revid': 3004, 'user': 'WikiAlice', 'timestamp': '2026-11-04T18:15:00Z',
      'comment': '/* wbsetclaim-create:2||1 */ [[Property:P8410]]: x #FOSS4GNA2026'},
+    {'revid': 3005, 'user': 'Stranger', 'timestamp': '2026-11-04T18:20:00Z',
+     'comment': '/* wbsetclaim-create:2||1 */ [[Property:P84]]: [[Q274663]]'},
 ]}}}}
 
 
@@ -159,7 +161,7 @@ class WikidataHarvesterTests(TestCase):
 
     def test_entry_quests_get_one_submission_per_hashtag_revision(self):
         quest = Quest.objects.create(event=self.event, title='Any edit', description='x',
-                                     criteria_type='wikidata_entry', validation_rules={})
+                                     criteria_type='wikidata_entry', validation_rules={'require_hashtag': True})
         with patch('requests.get', side_effect=self.router):
             stats = harvest_event_submissions(self.event.id)
         self.assertEqual(stats['wikidata']['created'], 2)
@@ -173,10 +175,35 @@ class WikidataHarvesterTests(TestCase):
         rev_call = next(c for c in self.calls if c.get('titles') == 'Q42')
         self.assertEqual((rev_call['rvstart'], rev_call['rvend']), ('2026-11-05T02:00:00Z', '2026-11-02T16:00:00Z'))
 
+    def test_entry_quests_without_hashtag_credit_members_contributions_only(self):
+        # require_hashtag defaults to false: no search, every in-window member edit counts.
+        quest = Quest.objects.create(event=self.event, title='Any edit', description='x',
+                                     criteria_type='wikidata_entry', validation_rules={})
+        with patch('requests.get', side_effect=self.router):
+            stats = harvest_event_submissions(self.event.id)
+        self.assertEqual([c.get('list') for c in self.calls], ['usercontribs'])
+        self.assertEqual(stats['wikidata']['created'], 3)
+        self.assertEqual(set(Submission.objects.filter(quest=quest).values_list('external_id', flat=True)),
+                         {'1001', '2002', '2003'})
+        self.assertEqual(Submission.objects.get(external_id='2003').team, self.team)
+
+    def test_mixed_entry_quests_route_untagged_edits_to_the_quest_without_hashtag(self):
+        tagged = Quest.objects.create(event=self.event, title='Tagged', description='x',
+                                      criteria_type='wikidata_entry', validation_rules={'require_hashtag': True})
+        untagged = Quest.objects.create(event=self.event, title='Untagged', description='x',
+                                        criteria_type='wikidata_entry', validation_rules={'require_hashtag': False})
+        with patch('requests.get', side_effect=self.router):
+            harvest_event_submissions(self.event.id)
+        self.assertEqual(Submission.objects.get(external_id='1001').quest, tagged)
+        self.assertEqual(Submission.objects.get(external_id='2003').quest, untagged)
+        # Q42's bot edit came from the search, has no hashtag and is not by a member.
+        self.assertFalse(Submission.objects.filter(external_id='1000').exists())
+
     def test_statement_quest_requires_hashtag_and_property(self):
         quest = Quest.objects.create(event=self.event, title='Julia Morgan', description='x',
                                      criteria_type='wikidata_statement',
-                                     validation_rules={'qid': 'Q111393295', 'properties': ['P84', 'P571']})
+                                     validation_rules={'qid': 'Q111393295', 'properties': ['P84', 'P571'],
+                                                       'require_hashtag': True})
         with patch('requests.get', side_effect=self.router):
             stats = harvest_event_submissions(self.event.id)
         self.assertEqual(stats['wikidata']['created'], 1)
@@ -187,6 +214,27 @@ class WikidataHarvesterTests(TestCase):
         self.assertEqual(sub.team, self.team)
         # Only the named item was queried; no search for statement-only events.
         self.assertEqual([c.get('titles') for c in self.calls], ['Q111393295'])
+
+    def test_statement_quest_without_hashtag_credits_members_edits(self):
+        quest = Quest.objects.create(event=self.event, title='Julia Morgan', description='x',
+                                     criteria_type='wikidata_statement',
+                                     validation_rules={'qid': 'Q111393295', 'properties': ['P84', 'P571']})
+        with patch('requests.get', side_effect=self.router):
+            stats = harvest_event_submissions(self.event.id)
+        self.assertEqual(stats['wikidata']['created'], 2)
+        self.assertEqual(set(Submission.objects.filter(quest=quest).values_list('external_id', flat=True)),
+                         {f'3001/q{quest.id}', f'3002/q{quest.id}'})
+        # The stranger's P84 edit has no hashtag and is not by a member.
+        self.assertFalse(Submission.objects.filter(external_id__startswith='3005/').exists())
+
+    def test_statement_quest_without_hashtag_or_members_reads_nothing(self):
+        TeamMembership.objects.all().delete()
+        Quest.objects.create(event=self.event, title='Julia Morgan', description='x',
+                             criteria_type='wikidata_statement', validation_rules={'qid': 'Q111393295'})
+        with patch('requests.get', side_effect=self.router):
+            stats = harvest_event_submissions(self.event.id)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(stats['wikidata']['created'], 0)
 
     def test_statement_quest_without_qid_is_skipped_with_warning(self):
         Quest.objects.create(event=self.event, title='New item', description='x',
