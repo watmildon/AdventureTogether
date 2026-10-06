@@ -1,10 +1,17 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import L from 'leaflet'
 import { api, ApiError, type EventData, type QuestData, type CriteriaType, type InspiredBy, type SessionData } from '../api'
 import { QUEST_TYPES, CRITERIA_TYPES, questTypeFor, formatSessionLine, formatSessionTime } from '../composables/useQuestTypes'
-import { defaultRuleForm, composeValidationRules, validateRuleForm, type TagRow } from '../composables/questRules'
+import {
+  defaultRuleForm,
+  composeValidationRules,
+  validateRuleForm,
+  rulesToForm,
+  unmodelledRules,
+  type TagRow
+} from '../composables/questRules'
 import { createQuestLayer, questPopupHtml } from '../composables/questLayers'
 
 const route = useRoute()
@@ -18,6 +25,8 @@ const questTitle = ref('')
 const questDescription = ref('')
 const criteriaType = ref<CriteriaType>('osm_tags')
 const pointsReward = ref(10)
+/** Inactive quests are hidden from participants; hosts can pause a quest without deleting it. */
+const isActive = ref(true)
 const selectedType = computed(() => QUEST_TYPES[criteriaType.value])
 
 // Per-type rule inputs; composed into validation_rules on save (see questRules.ts)
@@ -33,6 +42,16 @@ const windowEnd = ref('')
 // Target: a pinned point, or the whole event area (null geometry)
 const targetCoords = ref<{ lat: number; lng: number } | null>(null)
 const wholeArea = ref(true)
+/**
+ * A non-point target (Polygon, MultiPoint...) of the quest being edited. It is kept untouched
+ * on save until the host replaces it by clicking the map (or ticking "whole event area").
+ */
+const areaTarget = ref<any | null>(null)
+const areaTargetType = computed(() => String(areaTarget.value?.type || 'area').toLowerCase())
+
+/** The quest being edited, or null when the form creates a new quest. */
+const editingQuest = ref<QuestData | null>(null)
+const formHeading = ref<HTMLElement | null>(null)
 
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -66,10 +85,20 @@ const initMap = () => {
   questsLayerGroup = L.layerGroup().addTo(map)
 
   // Map click handler to set quest point target
-  map.on('click', (e: L.LeafletMouseEvent) => setPointTarget(e.latlng))
+  map.on('click', (e: L.LeafletMouseEvent) => onMapClick(e.latlng))
 
   // Data may already be loaded if the API answered before the map was created
   renderMapData()
+}
+
+/** A map click pins the target, after confirming when it would replace an area target. */
+const onMapClick = (latlng: L.LatLng) => {
+  if (areaTarget.value) {
+    if (!window.confirm(`Replace this quest's ${areaTargetType.value} target with a single point here?`)) return
+    areaTarget.value = null
+    renderExistingQuests()
+  }
+  setPointTarget(latlng)
 }
 
 /** Pins (or moves) the draggable target marker and switches off "whole event area". */
@@ -81,7 +110,7 @@ const setPointTarget = (latlng: L.LatLng) => {
   } else if (map) {
     currentMarker = L.marker(latlng, {
       draggable: true,
-      title: 'New Quest Target'
+      title: 'Quest target'
     }).addTo(map)
 
     currentMarker.on('dragend', () => {
@@ -99,7 +128,16 @@ const clearPointTarget = () => {
 
 /** The "use whole event area" toggle: ticking it drops any pinned point. */
 const onWholeAreaChange = () => {
-  if (wholeArea.value) clearPointTarget()
+  if (!wholeArea.value) return
+  if (areaTarget.value) {
+    if (!window.confirm(`Drop this quest's ${areaTargetType.value} target and use the whole event area?`)) {
+      wholeArea.value = false
+      return
+    }
+    areaTarget.value = null
+    renderExistingQuests()
+  }
+  clearPointTarget()
 }
 
 const loadEventData = async () => {
@@ -140,6 +178,8 @@ const renderExistingQuests = () => {
   questsLayerGroup.clearLayers()
 
   quests.value.forEach((q) => {
+    // The quest being edited is shown by the draggable pin instead, unless its area is kept
+    if (editingQuest.value?.id === q.id && !areaTarget.value) return
     // Outlines stay click-through so hosts can pin new targets inside existing quest areas
     const layer = createQuestLayer(q, questPopupHtml(q), { outlinesInteractive: false })
     if (layer) questsLayerGroup?.addLayer(layer)
@@ -203,6 +243,15 @@ const removeTagRow = (rows: TagRow[], index: number) => rows.splice(index, 1)
 /** datetime-local value (host's local time) to ISO 8601 UTC, or null when blank. */
 const toIsoOrNull = (value: string) => (value ? new Date(value).toISOString() : null)
 
+/** ISO 8601 to a datetime-local value in the host's time zone ('' when blank). */
+const toDatetimeLocal = (iso: string | null | undefined) => {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 const resetForm = () => {
   questTitle.value = ''
   questDescription.value = ''
@@ -212,8 +261,65 @@ const resetForm = () => {
   chosenSession.value = null
   manualSession.value = { title: '', url: '' }
   clearPointTarget()
+  areaTarget.value = null
   wholeArea.value = true
+  isActive.value = true
 }
+
+/** Loads a quest into the form for editing (heading, every field, and its target on the map). */
+const startEdit = (quest: QuestData) => {
+  successMsg.value = null
+  error.value = null
+  editingQuest.value = quest
+  questTitle.value = quest.title
+  questDescription.value = quest.description || ''
+  criteriaType.value = quest.criteria_type
+  rules.value = rulesToForm(quest.criteria_type, quest.validation_rules)
+  pointsReward.value = quest.points_reward
+  isActive.value = quest.is_active !== false
+  windowStart.value = toDatetimeLocal(quest.window_start)
+  windowEnd.value = toDatetimeLocal(quest.window_end)
+  const inspired = quest.inspired_by || {}
+  chosenSession.value = inspired.title ? { ...inspired } : null
+  manualSession.value = { title: '', url: '' }
+  sessionFilter.value = ''
+
+  clearPointTarget()
+  areaTarget.value = null
+  const geometry = quest.target_geometry
+  if (geometry?.type === 'Point' && Array.isArray(geometry.coordinates)) {
+    const [lng, lat] = geometry.coordinates
+    setPointTarget(L.latLng(lat, lng))
+    map?.panTo([lat, lng])
+  } else if (geometry) {
+    areaTarget.value = geometry
+    wholeArea.value = false
+    const bounds = L.geoJSON(geometry).getBounds()
+    if (map && bounds.isValid()) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 17 })
+  } else {
+    wholeArea.value = true
+  }
+  renderExistingQuests()
+  nextTick(() => formHeading.value?.scrollIntoView?.({ block: 'start', behavior: 'smooth' }))
+}
+
+/** Leaves edit mode and restores the empty create form. */
+const cancelEdit = () => {
+  editingQuest.value = null
+  resetForm()
+  criteriaType.value = 'osm_tags'
+  rules.value = defaultRuleForm()
+  pointsReward.value = 10
+  renderExistingQuests()
+}
+
+// While editing, switching the type re-initialises only the rule inputs (back to the quest's own
+// rules when switching back to its original type).
+watch(criteriaType, (type) => {
+  const quest = editingQuest.value
+  if (!quest) return
+  rules.value = type === quest.criteria_type ? rulesToForm(type, quest.validation_rules) : defaultRuleForm()
+})
 
 const handleSaveQuest = async () => {
   successMsg.value = null
@@ -225,12 +331,13 @@ const handleSaveQuest = async () => {
     error.value = 'Quest description is required.'
     return
   }
-  if (!wholeArea.value && !targetCoords.value) {
+  if (!wholeArea.value && !targetCoords.value && !areaTarget.value) {
     error.value = 'Click the map to pin a target, or tick "Use whole event area".'
     return
   }
   const hasPoint = Boolean(targetCoords.value)
-  const rulesProblem = validateRuleForm(criteriaType.value, rules.value, hasPoint)
+  // A kept area target also gives check-ins somewhere to be
+  const rulesProblem = validateRuleForm(criteriaType.value, rules.value, hasPoint || Boolean(areaTarget.value))
   if (rulesProblem) {
     error.value = rulesProblem
     return
@@ -248,6 +355,11 @@ const handleSaveQuest = async () => {
       }
     : null
 
+  if (editingQuest.value) {
+    await saveEdit(editingQuest.value, targetGeometry, hasPoint)
+    return
+  }
+
   try {
     loading.value = true
     error.value = null
@@ -261,7 +373,7 @@ const handleSaveQuest = async () => {
       target_geometry: targetGeometry,
       points_reward: pointsReward.value,
       // Types the server cannot verify yet are saved hidden from participants
-      is_active: !selectedType.value.comingSoon,
+      is_active: isActive.value && !selectedType.value.comingSoon,
       inspired_by: inspiredByPayload.value,
       window_start: toIsoOrNull(windowStart.value),
       window_end: toIsoOrNull(windowEnd.value)
@@ -280,11 +392,46 @@ const handleSaveQuest = async () => {
   }
 }
 
+/** PATCHes the edited quest; an area target the host did not replace is left out (unchanged). */
+const saveEdit = async (quest: QuestData, pointOrNull: Record<string, any> | null, hasPoint: boolean) => {
+  const type = criteriaType.value
+  const composed = composeValidationRules(type, rules.value, hasPoint)
+  // Rule keys the form does not model survive the edit when the type is unchanged
+  const validationRules =
+    type === quest.criteria_type ? { ...unmodelledRules(type, quest.validation_rules), ...composed } : composed
+  const changes: Partial<QuestData> = {
+    title: questTitle.value.trim(),
+    description: questDescription.value.trim(),
+    criteria_type: type,
+    validation_rules: validationRules,
+    points_reward: pointsReward.value,
+    is_active: isActive.value && !selectedType.value.comingSoon,
+    inspired_by: inspiredByPayload.value,
+    window_start: toIsoOrNull(windowStart.value),
+    window_end: toIsoOrNull(windowEnd.value)
+  }
+  if (!areaTarget.value) changes.target_geometry = pointOrNull
+
+  try {
+    loading.value = true
+    error.value = null
+    const updated = await api.updateQuest(quest.id, changes)
+    quests.value = quests.value.map((q) => (q.id === updated.id ? updated : q))
+    successMsg.value = `Quest "${updated.title}" saved.`
+    cancelEdit()
+  } catch (err: any) {
+    error.value = err.message || 'Failed to save quest.'
+  } finally {
+    loading.value = false
+  }
+}
+
 const handleDeleteQuest = async (quest: QuestData) => {
   if (!window.confirm(`Delete quest "${quest.title}"? Team progress on it will be lost.`)) return
   try {
     await api.deleteQuest(quest.id)
     quests.value = quests.value.filter((q) => q.id !== quest.id)
+    if (editingQuest.value?.id === quest.id) cancelEdit()
     renderExistingQuests()
     successMsg.value = `Quest "${quest.title}" deleted.`
   } catch {
@@ -308,6 +455,10 @@ onUnmounted(() => {
     <div class="builder-sidebar card">
       <h2 class="sidebar-title">Quest Builder</h2>
       <p v-if="event" class="sidebar-subtitle">{{ event.title }} (#{{ event.hashtag }})</p>
+
+      <h3 ref="formHeading" class="form-heading" :class="{ editing: editingQuest }">
+        {{ editingQuest ? `Edit quest: ${editingQuest.title}` : 'New quest' }}
+      </h3>
 
       <div v-if="successMsg" class="alert alert-success">{{ successMsg }}</div>
       <div v-if="error" class="alert alert-danger">{{ error }}</div>
@@ -439,6 +590,17 @@ onUnmounted(() => {
         <input id="pointsReward" v-model.number="pointsReward" type="number" min="1" class="form-input" />
       </div>
 
+      <div class="form-group">
+        <label v-if="selectedType.comingSoon" class="checkbox-row">
+          <input type="checkbox" :checked="false" disabled />
+          Active (coming-soon types are always saved inactive)
+        </label>
+        <label v-else class="checkbox-row">
+          <input id="isActive" v-model="isActive" type="checkbox" />
+          Active (visible to participants; untick to pause the quest)
+        </label>
+      </div>
+
       <fieldset class="form-group window-fields">
         <legend class="form-label">Quest window <span class="optional">(optional, your local time)</span></legend>
         <div class="window-row">
@@ -506,22 +668,36 @@ onUnmounted(() => {
         <p class="hint-text">
           📍 <strong>Target:</strong>&nbsp;<span v-if="targetCoords">{{ targetCoords.lat.toFixed(4) }}, {{ targetCoords.lng.toFixed(4) }} (drag the pin to adjust)</span>
           <span v-else-if="wholeArea">Whole event area</span>
+          <span v-else-if="areaTarget" class="area-target-note">Area target ({{ areaTargetType }}) set from the seed file, kept as is</span>
           <span v-else>Click the map to pin a target point</span>
         </p>
+        <p v-if="areaTarget" class="field-hint">Clicking the map replaces it with a single point (you will be asked first).</p>
         <label class="checkbox-row">
           <input v-model="wholeArea" type="checkbox" @change="onWholeAreaChange" />
           Use whole event area (no specific target)
         </label>
       </div>
 
-      <button class="btn btn-primary btn-block" :disabled="loading" @click="handleSaveQuest">
+      <div v-if="editingQuest" class="edit-actions">
+        <button class="btn btn-primary save-btn" :disabled="loading" @click="handleSaveQuest">
+          {{ loading ? 'Saving...' : 'Save changes' }}
+        </button>
+        <button type="button" class="btn btn-outline cancel-btn" :disabled="loading" @click="cancelEdit">Cancel</button>
+      </div>
+      <button v-else class="btn btn-primary btn-block" :disabled="loading" @click="handleSaveQuest">
         {{ loading ? 'Saving...' : 'Add Quest Challenge' }}
       </button>
 
       <div class="existing-quests-section">
         <h3>Existing Quests ({{ quests.length }})</h3>
         <ul class="quests-list">
-          <li v-for="q in quests" :key="q.id" class="quest-item">
+          <li
+            v-for="q in quests"
+            :key="q.id"
+            class="quest-item"
+            :class="{ 'is-editing': editingQuest?.id === q.id }"
+            :aria-current="editingQuest?.id === q.id ? 'true' : undefined"
+          >
             <div class="quest-item-main">
               <strong>{{ q.title }}</strong>
               <span class="quest-item-meta">
@@ -532,9 +708,14 @@ onUnmounted(() => {
                 <span v-if="q.is_active === false" class="badge badge-warning">inactive</span>
               </span>
             </div>
-            <button type="button" class="btn btn-outline btn-small delete-btn" @click="handleDeleteQuest(q)">
-              Delete
-            </button>
+            <div class="quest-item-actions">
+              <button type="button" class="btn btn-outline btn-small edit-btn" @click="startEdit(q)">
+                {{ editingQuest?.id === q.id ? 'Editing' : 'Edit' }}
+              </button>
+              <button type="button" class="btn btn-outline btn-small delete-btn" @click="handleDeleteQuest(q)">
+                Delete
+              </button>
+            </div>
           </li>
         </ul>
       </div>
@@ -637,9 +818,47 @@ onUnmounted(() => {
   font-weight: var(--font-weight-semibold);
 }
 
-.delete-btn {
+.quest-item.is-editing {
+  background-color: var(--color-primary-light);
+  box-shadow: inset 3px 0 0 var(--color-primary);
+  padding-left: var(--space-2);
+  padding-right: var(--space-1);
+  border-radius: var(--radius-sm);
+}
+
+.quest-item-actions {
+  display: flex;
+  gap: var(--space-1);
   flex-shrink: 0;
+}
+
+.delete-btn {
   color: var(--color-danger);
+}
+
+.form-heading {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  margin-bottom: var(--space-3);
+  /* Clear the sticky app header when scrolled into view on phones */
+  scroll-margin-top: calc(var(--header-height) + var(--space-2));
+}
+
+.form-heading.editing {
+  color: var(--color-primary);
+}
+
+.edit-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.edit-actions .save-btn {
+  flex: 1;
+}
+
+.area-target-note {
+  font-style: italic;
 }
 
 .field-hint {

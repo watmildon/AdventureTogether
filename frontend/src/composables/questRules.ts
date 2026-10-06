@@ -12,6 +12,7 @@
  *   location_checkin   {radius_m, min_minutes}
  *   street_imagery     {target_count}
  *
+ * rulesToForm is the inverse, used when the builder edits an existing quest.
  * Kept free of Vue so it can be unit-tested directly.
  */
 
@@ -122,6 +123,81 @@ export function composeValidationRules(
     default:
       return { target_count }
   }
+}
+
+/** The validation_rules keys the builder form models, per type. Anything else is kept as is on edit. */
+export const MODELLED_RULE_KEYS: Record<CriteriaType, string[]> = {
+  osm_tags: ['required_tags', 'target_count', 'require_hashtag', 'radius_m'],
+  wikimedia_commons: ['category', 'target_count'],
+  wikidata_entry: ['target_count'],
+  wikidata_statement: ['qid', 'properties', 'target_count'],
+  osm_notes: ['target_count'],
+  ohm_feature: ['required_tags', 'target_count'],
+  oss_contribution: ['kinds', 'allowed_owners', 'target_count'],
+  location_checkin: ['radius_m', 'min_minutes'],
+  street_imagery: ['target_count']
+}
+
+/** {key: value} to tag rows (the inverse of tagsToObject). */
+export function objectToTags(tags: unknown): TagRow[] {
+  if (!tags || typeof tags !== 'object') return []
+  return Object.entries(tags as Record<string, unknown>).map(([key, value]) => ({
+    key,
+    value: value == null ? '*' : String(value)
+  }))
+}
+
+const listText = (value: unknown) => (Array.isArray(value) ? value.join(', ') : typeof value === 'string' ? value : '')
+const numberOr = (value: unknown, fallback: number) => {
+  const n = Number(value)
+  return value !== null && value !== undefined && value !== '' && Number.isFinite(n) ? n : fallback
+}
+
+/**
+ * The inverse of composeValidationRules: decomposes a quest's validation_rules into the
+ * builder form so an existing quest can be edited. Keys the type does not use, and missing
+ * keys, fall back to defaultRuleForm(), so composing the result reproduces the rules.
+ */
+export function rulesToForm(type: CriteriaType, rules: Record<string, any> | null | undefined): RuleForm {
+  const form = defaultRuleForm()
+  const r = rules && typeof rules === 'object' ? rules : {}
+  form.targetCount = numberOr(r.target_count, form.targetCount)
+
+  switch (type) {
+    case 'osm_tags':
+      form.osmTags = objectToTags(r.required_tags)
+      form.requireHashtag = r.require_hashtag !== false
+      form.osmRadiusM = numberOr(r.radius_m, form.osmRadiusM)
+      break
+    case 'ohm_feature':
+      form.ohmTags = objectToTags(r.required_tags)
+      break
+    case 'wikimedia_commons':
+      form.category = typeof r.category === 'string' ? r.category : ''
+      break
+    case 'wikidata_statement':
+      form.qid = typeof r.qid === 'string' ? r.qid : ''
+      form.properties = listText(r.properties)
+      break
+    case 'oss_contribution': {
+      // The harvester treats missing/empty kinds as both
+      const kinds: string[] = Array.isArray(r.kinds) && r.kinds.length ? r.kinds : ['pr', 'issue']
+      form.kinds = { pr: kinds.includes('pr'), issue: kinds.includes('issue') }
+      form.allowedOwners = listText(r.allowed_owners)
+      break
+    }
+    case 'location_checkin':
+      form.checkinRadiusM = numberOr(r.radius_m, form.checkinRadiusM)
+      form.minMinutes = numberOr(r.min_minutes, form.minMinutes)
+      break
+  }
+  return form
+}
+
+/** validation_rules entries the form does not model for this type (preserved when saving an edit). */
+export function unmodelledRules(type: CriteriaType, rules: Record<string, any> | null | undefined): Record<string, any> {
+  const known = new Set(MODELLED_RULE_KEYS[type] || [])
+  return Object.fromEntries(Object.entries(rules || {}).filter(([key]) => !known.has(key)))
 }
 
 /** Returns a human-readable problem with the rules for this type, or null when they are usable. */

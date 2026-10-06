@@ -78,7 +78,7 @@ To contribute data to OpenStreetMap without tedious manual searching:
    | 🛣️ Street-level imagery | Contributions needed. **Coming soon**: not verified yet, so these quests are saved as inactive and hidden from participants. |
 
    "Contributions needed" is the quest's `target_count`: e.g. 5 for "add opening hours to 5 cafes".
-3. Set the point value.
+3. Set the point value. Leave **Active** ticked for the quest to be visible to participants; untick it to save the quest paused.
 4. Optionally set a **Quest window** (From / Until) to limit when the quest counts, e.g. Monday 18:00–20:00 for an icebreaker check-in. The times are in your browser's time zone, so set them from a device on conference time.
 5. Optionally pick the talk behind the quest under **Inspired by**:
    - If the event has a schedule URL, type part of a title or speaker name to filter the programme, then tap a session. The chosen session is shown with its speakers, time and room. Tap **Change** to pick another.
@@ -87,6 +87,8 @@ To contribute data to OpenStreetMap without tedious manual searching:
 7. Tap **Add Quest Challenge**.
 
 The **Existing Quests** list under the form shows each quest's type, points, and whether it is inactive. **Delete** removes a quest after a confirmation. Team progress on that quest is lost.
+
+To change a quest, tap **Edit** next to it in the list. The form switches to **Edit quest: <title>**, filled in with the quest's current settings, and the quest is highlighted in the list. A point target shows as a draggable pin, and the map moves to it. Quests seeded with an area target (a polygon or several points) say *"Area target (polygon) set from the seed file, kept as is"*. That area is kept unless you click the map, which replaces it with a single point once you confirm. Changing the quest type resets only the rule inputs. Tap **Save changes** to update the quest, or **Cancel** to go back to an empty form. To pause a quest without losing team progress, untick **Active** and save; participants stop seeing it until you tick it again.
 
 ### 2.3 Verification Dashboard & Review Workflow
 1. Navigate to `/events/<id>/host/verify` to open the **Host Verification Portal**.

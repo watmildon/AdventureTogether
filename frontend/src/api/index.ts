@@ -205,7 +205,15 @@ const readError = async (res: Response): Promise<Record<string, any>> => {
   }
 }
 
+/** DRF returns {field: [messages]}; surface the first field error as "field: message". */
+const fieldErrorDetail = async (res: Response, fallback: string): Promise<string> => {
+  const err = await readError(res)
+  const first = Object.entries(err)[0]
+  return first ? `${first[0]}: ${([] as any[]).concat(first[1]).join(' ')}` : fallback
+}
+
 const API_BASE = '/api'
+
 
 export const api = {
   // Events API
@@ -334,13 +342,18 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(quest)
     })
-    if (!res.ok) {
-      const err = await readError(res)
-      // DRF returns {field: [messages]}; surface the first field error we can find
-      const first = Object.entries(err)[0]
-      const detail = first ? `${first[0]}: ${([] as any[]).concat(first[1]).join(' ')}` : null
-      throw new Error(detail || 'Failed to create quest')
-    }
+    if (!res.ok) throw new ApiError(await fieldErrorDetail(res, 'Failed to create quest'), res.status)
+    return res.json()
+  },
+
+  /** PATCHes any subset of a quest's writable fields; the server keeps the target inside the event. */
+  async updateQuest(questId: number | string, changes: Partial<QuestData>): Promise<QuestData> {
+    const res = await fetch(`${API_BASE}/quests/${questId}/`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(changes)
+    })
+    if (!res.ok) throw new ApiError(await fieldErrorDetail(res, 'Failed to update quest'), res.status)
     return res.json()
   },
 
