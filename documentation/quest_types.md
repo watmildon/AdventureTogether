@@ -235,9 +235,47 @@ Set `GITHUB_TOKEN` in the deployment environment: without it GitHub allows only 
 
 ## `location_checkin`: GPS check-in
 
-*Owned by the GPS check-in feature (`apps.locations`). It is not handled by the harvesters, and its `validation_rules` keys are documented with that feature.*
+A participant's foreground location pings land within a set distance of the quest target, optionally for a minimum time. This is checked on the server from `LocationPing` as pings arrive; there is no external API and no harvester. Check-ins are verified automatically.
 
-A participant's foreground location pings land within a radius of the target for a minimum dwell time. The quest is verified on the server from `LocationPing` data and auto-verifies. Submissions use the `checkin` platform and credit the member who sent the pings.
+**Target:** `target_geometry` is required; quests without one are ignored.
+- **Point:** used as the target directly.
+- **Polygon:** its centroid is the target, and any ping inside the polygon also counts as in range.
+
+**validation_rules**
+
+| Key | Default | Meaning |
+|---|---|---|
+| `radius_m` | 50 | In range if the ping is within this many metres of the target (haversine distance) |
+| `min_minutes` | 0 | Required time in range, from first to latest in-range ping. 0 verifies on the first in-range ping. If no in-range ping arrives for 10 minutes before verification, the clock restarts |
+| `target_count` | 1 | Number of distinct participants on a team who must check in before the team completes the quest |
+
+**Evidence:** one Submission per (quest, participant):
+- `platform="checkin"`, `external_id="q{quest_id}/{user_identifier}"`
+- `author_username` = the participant's display name
+- `external_url` = OSM map link to the first in-range position
+- `contributed_at` = first in-range time
+- `diff_payload` = `{user_identifier, first_seen, dwell_start, last_seen, ping_count, distance_m, radius_m, min_minutes, auto_verified_at?}`
+
+Only pings sent while the quest is open count: the quest must be active and inside its `window_start`/`window_end`. Background pings are ignored.
+
+**Credit:** when the dwell time is met, the submission is verified by `system:checkin` and QuestProgress awards `points_reward` once the team reaches `target_count`. Auto-verification happens at most once, so a host who un-verifies a check-in will not be overridden by later pings. A participant without a team leaves evidence but earns no points; their team is credited on their next in-range ping after they join.
+
+**Participant API**
+- `POST /api/locations/ping/` returns `checkins: [{quest, quest_title, status: in_range|verified, distance_m}]`
+- `GET /api/locations/checkins/?event=&user_identifier=` returns `[{quest, quest_title, status: verified|pending|revoked, first_seen, last_seen, ping_count, distance_m, radius_m, min_minutes, verified_at}]`
+
+**Example**
+```json
+{
+  "title": "Icebreaker check-in",
+  "criteria_type": "location_checkin",
+  "target_geometry": {"type": "Point", "coordinates": [-121.48993, 38.57902]},
+  "validation_rules": {"radius_m": 60, "min_minutes": 5},
+  "window_start": "2026-11-02T18:00:00-08:00",
+  "window_end": "2026-11-02T20:00:00-08:00",
+  "points_reward": 10
+}
+```
 
 ---
 

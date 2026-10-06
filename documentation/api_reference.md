@@ -228,6 +228,9 @@ Ingests an ephemeral foreground location ping.
 }
 ```
 
+### `GET /api/locations/checkins/?event=<event_id>&user_identifier=<user_id>`
+Lists the participant's GPS check-in submissions for the event: `[{quest, quest_title, status: "verified"|"pending"|"revoked", first_seen, last_seen, ping_count, distance_m, radius_m, min_minutes, verified_at}]`. Both parameters are required (400 otherwise). The ping endpoint above also returns a `checkins` list (`[{quest, quest_title, status: "in_range"|"verified", distance_m}]`) for the quests the ping was in range of. See `documentation/quest_types.md`.
+
 ### `GET /api/locations/active/?event=<event_id>&user_identifier=<user_id>`
 Returns active participant locations within the **20-minute decay window**, filtered according to privacy matrix permissions (`nobody`, `team`, `quest`).
 
@@ -254,7 +257,7 @@ Host endpoint to verify (or, with `"is_verified": false`, un-verify) a submissio
 ```
 
 ### `POST /api/submissions/trigger_harvest/`
-Manually triggers background polling for an event.
+Runs a harvest synchronously for the event and returns `{"message", "stats"}`. `stats` holds one `{harvested, created, updated, matched, errors}` entry per platform that ran (`osm`, `ohm`, `osm_notes`, `commons`, `wikidata`, `github`), plus `summary` (totals), `warnings`, `event`, `found` and `dry_run`. Returns 400 if `event` is missing or not an integer, and 404 (with `stats`) if the event does not exist or is inactive. Only the platforms the event's active quests need are contacted. See `documentation/harvesters.md`.
 
 **Payload**:
 ```json

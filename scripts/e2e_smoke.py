@@ -60,6 +60,15 @@ def manage(*args):
     return result.stdout
 
 
+def harvest_dry_run(event_id):
+    """Runs manage.py harvest_event --dry-run and returns the parsed stats, or None."""
+    out = manage('harvest_event', str(event_id), '--dry-run')
+    try:
+        return json.loads(out[out.index('{'):])
+    except ValueError:
+        return None
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--base', default='http://127.0.0.1:8000')
@@ -160,13 +169,40 @@ def main():
 
     print('6. Harvest dry-run against real external APIs')
     if os.environ.get('OVERPASS_URL'):
-        out = manage('harvest_event', str(event_id), '--dry-run')
-        try:
-            stats = json.loads(out[out.index('{'):])
-        except ValueError:
-            stats = None
-        check(stats is not None, 'harvest_event --dry-run returned JSON stats')
-        print('        ' + json.dumps({k: v for k, v in stats.items() if k != 'would_create'})[:400])
+        # 6a. The real event: its window is in the future until the conference, so
+        # nothing should match, but every platform must run without errors.
+        stats = harvest_dry_run(event_id)
+        check(stats is not None and stats.get('found'), 'harvest_event --dry-run returned stats for the seeded event')
+        check(stats['summary']['errors'] == 0, f'no harvester errors ({[k for k in stats if isinstance(stats[k], dict) and k != "summary"]})')
+
+        # 6b. A probe event over the same area with a window in the past and no hashtag
+        # requirement, so the Overpass path has to find real recent edits.
+        probe = requests.post(f'{api}/events/', json={
+            'title': 'E2E Harvest Probe', 'slug': 'e2e-harvest-probe', 'hashtag': 'E2EProbe',
+            'description': 'temporary', 'bounding_polygon': event['bounding_polygon'],
+            'start_time': '2026-06-01T00:00:00Z', 'end_time': '2027-01-01T00:00:00Z',
+        }, timeout=10)
+        if probe.status_code == 400:  # left over from an aborted run
+            leftovers = requests.get(f'{api}/events/', timeout=10).json()['results']
+            probe_id = next(e['id'] for e in leftovers if e['slug'] == 'e2e-harvest-probe')
+        else:
+            check(probe.status_code == 201, 'probe event created')
+            probe_id = probe.json()['id']
+        quest = requests.post(f'{api}/quests/', json={
+            'event': probe_id, 'title': 'Probe: eateries with hours', 'description': 'temporary',
+            'criteria_type': 'osm_tags', 'target_geometry': None, 'points_reward': 1,
+            'validation_rules': {'required_tags': {'amenity': 'restaurant|cafe', 'opening_hours': '*'},
+                                 'target_count': 1, 'require_hashtag': False},
+        }, timeout=10)
+        check(quest.status_code == 201, 'probe quest created')
+        stats = harvest_dry_run(probe_id)
+        check(stats is not None and stats.get('osm', {}).get('errors', 1) == 0, 'probe harvest ran without OSM errors')
+        found = stats.get('osm', {}).get('harvested', 0)
+        check(found > 0, f'Overpass found {found} recent eatery edits with opening_hours in downtown Sacramento')
+        sample = next((w for w in stats.get('would_submit', []) if w['platform'] == 'osm'), None)
+        check(sample is not None and sample.get('author') and sample.get('element_count', 0) >= 1,
+              f'would-be submission carries author and element count ({sample})')
+        requests.delete(f'{api}/events/{probe_id}/', timeout=10)
     else:
         print('  SKIP  OVERPASS_URL not set; run with OVERPASS_URL="$(cat ~/.overpassurl)" to include harvesting')
 
