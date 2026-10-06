@@ -666,3 +666,6 @@ cython_debug/
 # Ansible group_vars hold deployment secrets (OVERPASS_URL, GITHUB_TOKEN); only the
 # .example templates are tracked.
 deploy/ansible/group_vars/*.yml
+
+# Agent worktrees created during orchestrated sessions
+.claude/worktrees/
