@@ -58,12 +58,26 @@ class Event(models.Model):
         verbose_name_plural = 'Scavenger Hunt Events'
 
     def save(self, *args, **kwargs):
-        """Auto-generate slug if not provided, and strip '#' from hashtag."""
+        """Auto-generate a unique slug if not provided, and strip '#' from hashtag."""
         if not self.slug and self.title:
-            self.slug = slugify(self.title)
+            self.slug = self._generate_unique_slug()
         if self.hashtag:
             self.hashtag = self.hashtag.lstrip('#').strip()
         super().save(*args, **kwargs)
+
+    def _generate_unique_slug(self) -> str:
+        """
+        Slugifies the title and appends a numeric suffix (-2, -3, ...) when another
+        event already uses that slug, so two events with the same title can coexist.
+        """
+        base_slug = slugify(self.title)[:240] or 'event'
+        candidate = base_slug
+        suffix = 2
+        existing = Event.objects.exclude(pk=self.pk) if self.pk else Event.objects.all()
+        while existing.filter(slug=candidate).exists():
+            candidate = f"{base_slug}-{suffix}"
+            suffix += 1
+        return candidate
 
     def is_within_bounds(self, geometry) -> bool:
         """

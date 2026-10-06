@@ -120,13 +120,12 @@ docker compose exec backend python manage.py migrate
 
 ## 4. Seeding demo data
 
-A fresh database is empty and the UI has no screen for creating events, so create one through the API. The `slug` field is currently required by the serializer even though the model would generate it.
+A fresh database is empty and the UI has no screen for creating events, so create one through the API. The `slug` is optional and is generated from the title when omitted.
 
 ```bash
 # Event with a bounding polygon over downtown San Francisco
 curl -sS -X POST http://127.0.0.1:8000/api/events/ -H 'Content-Type: application/json' -d '{
   "title": "Downtown SF Demo Hunt",
-  "slug": "downtown-sf-demo-hunt",
   "description": "Demo event for local testing.",
   "hashtag": "AdventureTogetherDemo",
   "bounding_polygon": {"type":"Polygon","coordinates":[[[-122.425,37.770],[-122.395,37.770],[-122.395,37.800],[-122.425,37.800],[-122.425,37.770]]]},
@@ -189,8 +188,6 @@ cd frontend && npx vitest run
 **Backend connects to Postgres unexpectedly.** `settings.py` switches to PostGIS whenever `POSTGRES_DB` is set in the environment. Unset it for SpatiaLite.
 
 **Frontend tests fail with `Cannot read properties of undefined (reading 'clear')` on `localStorage`.** Node 22+ ships a native `localStorage` global that is undefined unless Node is started with `--localstorage-file`, and it shadows the jsdom implementation Vitest provides. This affects tests only, not the app. Use Node 20 for the test suite, or add a Vitest setup file that assigns a jsdom `localStorage` onto `globalThis`.
-
-**`POST /api/events/` returns `{"slug": ["This field is required."]}`.** Known serializer gap; pass a slug explicitly.
 
 **Map tiles do not load.** Tiles come from the public OpenStreetMap tile servers and need internet access. The Leaflet CSS is also loaded from a CDN in `frontend/index.html`.
 

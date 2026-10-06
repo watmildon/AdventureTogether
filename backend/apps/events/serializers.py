@@ -26,6 +26,18 @@ class EventSerializer(serializers.ModelSerializer):
             'created_at',
         ]
         read_only_fields = ['id', 'created_at']
+        extra_kwargs = {
+            # The model generates a slug from the title on save, so clients may omit it.
+            'slug': {'required': False, 'allow_blank': True},
+        }
+
+    def validate(self, attrs):
+        """
+        Drops a blank slug so Event.save() generates one from the title.
+        """
+        if 'slug' in attrs and not attrs['slug']:
+            attrs.pop('slug')
+        return attrs
 
 
 class EventGeoSerializer(GeoFeatureModelSerializer):
