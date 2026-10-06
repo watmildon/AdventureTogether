@@ -2,14 +2,13 @@
 Views and API ViewSets for Ingested Submissions, Host Verification, and Harvesting.
 """
 
-from django.utils import timezone
-from django.db import transaction
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from .models import Submission
 from .serializers import SubmissionSerializer, VerifySubmissionInputSerializer
 from .services.harvest_worker import harvest_event_submissions
+from .services.progress import set_submission_verification
 
 
 class SubmissionViewSet(viewsets.ModelViewSet):
@@ -47,22 +46,9 @@ class SubmissionViewSet(viewsets.ModelViewSet):
         is_verified = serializer.validated_data.get('is_verified', True)
         verified_by = serializer.validated_data.get('verified_by_username', 'Host')
 
-        with transaction.atomic():
-            was_previously_verified = submission.is_verified
-            submission.is_verified = is_verified
-            submission.verified_by_username = verified_by if is_verified else None
-            submission.verified_at = timezone.now() if is_verified else None
-            submission.save()
-
-            # Award points if newly verified and associated with a team & quest
-            if is_verified and not was_previously_verified and submission.team and submission.quest:
-                submission.team.score += submission.quest.points_reward
-                submission.team.save()
-
-            # Deduct points if revoked
-            elif not is_verified and was_previously_verified and submission.team and submission.quest:
-                submission.team.score = max(0, submission.team.score - submission.quest.points_reward)
-                submission.team.save()
+        # Scoring lives in the progress service so counted quests (target_count > 1)
+        # award points only once the team reaches the target, and revoke idempotently.
+        set_submission_verification(submission, is_verified, verified_by)
 
         return Response(
             SubmissionSerializer(submission).data,

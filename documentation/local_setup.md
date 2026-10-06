@@ -46,9 +46,13 @@ export GDAL_LIBRARY_PATH=/opt/homebrew/lib/libgdal.dylib
 export GEOS_LIBRARY_PATH=/opt/homebrew/lib/libgeos_c.dylib
 export SPATIALITE_LIBRARY_PATH=/opt/homebrew/lib/mod_spatialite.dylib
 unset POSTGRES_DB   # when unset, settings.py falls back to SpatiaLite
+
+# External API credentials for the harvesters. Both are secrets: never commit or paste them.
+export OVERPASS_URL="$(cat ~/.overpassurl)"   # private Overpass endpoint (public fallback: https://overpass-api.de/api/interpreter)
+export GITHUB_TOKEN=...                       # optional; raises GitHub search rate limits for oss_contribution quests
 ```
 
-Consider putting those four lines in a `backend/.env.local` (gitignored) and sourcing it, or in your shell profile.
+Consider putting those lines in a `backend/.env.local` (gitignored) and sourcing it, or in your shell profile.
 
 Then migrate and run:
 

@@ -43,6 +43,14 @@ class Event(models.Model):
     end_time = models.DateTimeField(
         help_text="Timestamp when the hunt concludes."
     )
+    schedule_url = models.URLField(
+        max_length=500,
+        blank=True,
+        help_text=(
+            "Optional pretalx/frab-compatible schedule JSON export used to link quests to sessions, "
+            "e.g. https://talks.osgeo.org/foss4g-na-2026/schedule/export/schedule.json"
+        )
+    )
     is_active = models.BooleanField(
         default=True,
         help_text="Flag indicating whether the event is actively accepting location pings and submissions."

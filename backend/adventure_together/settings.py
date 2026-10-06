@@ -170,3 +170,29 @@ Q_CLUSTER = {
     'cpu_affinity': 1,
     'label': 'Background Tasks',
 }
+
+# Cache
+# Process-local in-memory cache; used e.g. for parsed conference schedule exports.
+# Swap for a shared backend (database / memcached) if multiple web workers need to share it.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'adventure-together-default',
+    }
+}
+
+# External open-data APIs used by the harvesters.
+# OVERPASS_URL and GITHUB_TOKEN are secrets: they are only ever read from the environment,
+# never committed, logged, or echoed. An empty OVERPASS_URL means "not configured".
+OVERPASS_URL = os.environ.get('OVERPASS_URL', '')
+GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
+OSM_API_BASE = os.environ.get('OSM_API_BASE', 'https://api.openstreetmap.org/api/0.6')
+OHM_API_BASE = os.environ.get('OHM_API_BASE', 'https://www.openhistoricalmap.org/api/0.6')
+WIKIMEDIA_COMMONS_API = os.environ.get('WIKIMEDIA_COMMONS_API', 'https://commons.wikimedia.org/w/api.php')
+WIKIDATA_API = os.environ.get('WIKIDATA_API', 'https://www.wikidata.org/w/api.php')
+PANORAMAX_API = os.environ.get('PANORAMAX_API', 'https://api.panoramax.xyz/api')
+# Identifies us to the external APIs (OSM and Wikimedia policies require a descriptive UA).
+HARVEST_USER_AGENT = os.environ.get(
+    'HARVEST_USER_AGENT',
+    'AdventureTogether-Harvester/1.0 (https://github.com/mwhilden/AdventureTogether)'
+)

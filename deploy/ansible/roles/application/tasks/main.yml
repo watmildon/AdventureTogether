@@ -22,6 +22,21 @@
       - "--exclude=node_modules"
       - "--exclude=.venv"
       - "--exclude=__pycache__"
+      # Never ship a developer's local secrets file; the task below writes the server's own.
+      - "--exclude=deploy/.env"
+
+- name: Write runtime secrets for Docker Compose (deploy/.env)
+  # overpass_url and github_token come from an ansible-vault encrypted
+  # group_vars/scavenger_servers.yml or --extra-vars; see group_vars/scavenger_servers.yml.example.
+  copy:
+    dest: "{{ project_root }}/deploy/.env"
+    content: |
+      OVERPASS_URL={{ overpass_url | default('') }}
+      GITHUB_TOKEN={{ github_token | default('') }}
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
 
 - name: Create production systemd service for AdventureTogether Docker Compose
   copy:

@@ -1,0 +1,19 @@
+---
+# Example secrets for the scavenger_servers group.
+#
+# Copy to group_vars/scavenger_servers.yml and fill in real values, then encrypt it:
+#   ansible-vault encrypt group_vars/scavenger_servers.yml
+#   ansible-playbook -i inventory.ini playbook.yml --ask-vault-pass
+# or pass the values at run time instead:
+#   ansible-playbook -i inventory.ini playbook.yml \
+#     -e overpass_url="$(cat ~/.overpassurl)" -e github_token="$GITHUB_TOKEN"
+#
+# The real file must NEVER be committed (group_vars/*.yml is gitignored; only this
+# .example is tracked). The application role writes these into deploy/.env (mode 0600)
+# on the server, where Docker Compose reads them.
+
+# Overpass API interpreter endpoint used by the harvesters.
+overpass_url: "https://overpass-api.de/api/interpreter"
+
+# Optional GitHub token for the oss_contribution harvester (raises search rate limits).
+github_token: "ghp_replace_me"

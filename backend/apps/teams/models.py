@@ -74,6 +74,26 @@ class TeamMembership(models.Model):
         default='Anonymous Mapper',
         help_text="Participant display name visible to teammates."
     )
+    # External platform accounts, used by the harvesters to credit contributions to this
+    # member's team instead of guessing from display names. All optional.
+    osm_username = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text="OpenStreetMap (and OpenHistoricalMap) username, if the participant shared it."
+    )
+    wikimedia_username = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text="Wikimedia account name (Commons / Wikidata), if the participant shared it."
+    )
+    github_username = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text="GitHub login, if the participant shared it."
+    )
     joined_at = models.DateTimeField(
         auto_now_add=True,
         help_text="Timestamp when the member joined the team."

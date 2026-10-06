@@ -22,6 +22,7 @@ class EventSerializer(serializers.ModelSerializer):
             'bounding_polygon',
             'start_time',
             'end_time',
+            'schedule_url',
             'is_active',
             'created_at',
         ]
@@ -55,6 +56,7 @@ class EventGeoSerializer(GeoFeatureModelSerializer):
             'hashtag',
             'start_time',
             'end_time',
+            'schedule_url',
             'is_active',
             'created_at',
         ]

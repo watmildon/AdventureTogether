@@ -663,3 +663,6 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
+# Ansible group_vars hold deployment secrets (OVERPASS_URL, GITHUB_TOKEN); only the
+# .example templates are tracked.
+deploy/ansible/group_vars/*.yml

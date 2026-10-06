@@ -3,7 +3,7 @@ Serializers for Ingested Submissions and Host Verification.
 """
 
 from rest_framework import serializers
-from .models import Submission
+from .models import QuestProgress, Submission
 
 
 class SubmissionSerializer(serializers.ModelSerializer):
@@ -32,6 +32,8 @@ class SubmissionSerializer(serializers.ModelSerializer):
             'is_verified',
             'verified_by_username',
             'verified_at',
+            'element_count',
+            'contributed_at',
             'created_at',
         ]
         read_only_fields = ['id', 'created_at']
@@ -43,3 +45,26 @@ class VerifySubmissionInputSerializer(serializers.Serializer):
     """
     is_verified = serializers.BooleanField(default=True)
     verified_by_username = serializers.CharField(max_length=255, default='Host')
+
+
+class QuestProgressSerializer(serializers.ModelSerializer):
+    """
+    A team's progress on one quest. Also used for unsaved placeholder rows (count 0) so
+    clients can render every quest of the event, not only those already started.
+    """
+    quest_title = serializers.CharField(source='quest.title', read_only=True)
+    target_count = serializers.IntegerField(source='quest.target_count', read_only=True)
+    points_reward = serializers.IntegerField(source='quest.points_reward', read_only=True)
+
+    class Meta:
+        model = QuestProgress
+        fields = [
+            'quest',
+            'quest_title',
+            'count',
+            'target_count',
+            'points_reward',
+            'completed_at',
+            'points_awarded',
+        ]
+        read_only_fields = fields

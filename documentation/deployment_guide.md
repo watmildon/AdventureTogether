@@ -58,6 +58,17 @@ Deploy the full containerized stack using Docker Compose:
 docker compose up -d --build
 ```
 
+### Secrets and External API Configuration
+The backend and worker containers read these from the environment (Docker Compose passes them through from your shell or from `deploy/.env`):
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `OVERPASS_URL` | Yes, for Overpass-based checks | Overpass API interpreter endpoint, e.g. `https://overpass-api.de/api/interpreter` |
+| `GITHUB_TOKEN` | Optional | Raises GitHub search rate limits for `oss_contribution` quests |
+| `OSM_API_BASE`, `OHM_API_BASE`, `WIKIMEDIA_COMMONS_API`, `WIKIDATA_API`, `PANORAMAX_API`, `HARVEST_USER_AGENT` | No | Override the public API defaults in `settings.py` |
+
+Set `OVERPASS_URL` in the environment; locally `export OVERPASS_URL="$(cat ~/.overpassurl)"`; never commit it. The same applies to `GITHUB_TOKEN`: keep both out of compose files, scripts, logs, and commit messages. `deploy/.env` is gitignored.
+
 ### Container Registry:
 1. `adventure_together_db`: PostGIS 16-3.4 spatial database with persistent volume `postgis_data`.
 2. `adventure_together_backend`: Django REST API with GeoDjango.
@@ -75,6 +86,14 @@ The playbooks in `deploy/ansible/` configure an Ubuntu/Debian server from scratc
 cd deploy/ansible
 ansible-playbook -i inventory.ini playbook.yml
 ```
+
+### Supplying Secrets to Ansible
+The `application` role writes `{{ project_root }}/deploy/.env` (mode `0600`, task output hidden with `no_log`) from the variables `overpass_url` and `github_token`, so Docker Compose picks them up on the server. Provide them one of two ways:
+
+1. **ansible-vault**: copy `group_vars/scavenger_servers.yml.example` to `group_vars/scavenger_servers.yml`, fill it in, run `ansible-vault encrypt group_vars/scavenger_servers.yml`, and add `--ask-vault-pass` to the playbook command.
+2. **--extra-vars**: `ansible-playbook -i inventory.ini playbook.yml -e overpass_url="$(cat ~/.overpassurl)" -e github_token="$GITHUB_TOKEN"`.
+
+`deploy/ansible/group_vars/*.yml` is gitignored. Never commit the real file; keep even vault-encrypted copies out of the public repository.
 
 ### Automated Backup & Disaster Recovery
 - **Daily Cron Backup**: Runs at 02:00 UTC, outputting to `/var/backups/adventuretogether/postgis_backup_<timestamp>.sql.gz`.
