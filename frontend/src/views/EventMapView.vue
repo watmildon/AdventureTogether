@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import L from 'leaflet'
 import { api, type EventData, type QuestData, type LocationPingData } from '../api'
-import { useGeolocation, type VisibilityTier } from '../composables/useGeolocation'
+import { useGeolocation, clearSimulatedPosition, type VisibilityTier } from '../composables/useGeolocation'
 import { useDeepLinks } from '../composables/useDeepLinks'
 
 const route = useRoute()
@@ -20,10 +20,20 @@ const {
   isForeground,
   visibility,
   isTracking,
+  isSimulated,
   error: geoError,
   lastPingTime,
   setVisibility
 } = useGeolocation(eventId)
+
+/** Drops the simulated GPS position and reloads so the real Geolocation API takes over. */
+const stopSimulatingGps = () => {
+  clearSimulatedPosition()
+  const url = new URL(window.location.href)
+  url.searchParams.delete('lat')
+  url.searchParams.delete('lng')
+  window.location.href = url.toString()
+}
 
 const { getDeepLinks, launchDeepLink } = useDeepLinks()
 
@@ -189,6 +199,12 @@ onUnmounted(() => {
           {{ isForeground ? '● Foreground Active' : '⏸ Background Paused' }}
         </span>
 
+        <!-- Dev/testing aid: shown only when a simulated GPS position is in use -->
+        <span v-if="isSimulated" class="badge badge-warning simulated-badge" title="Position comes from ?lat=&lng= / localStorage, not the device GPS">
+          🧪 Simulated GPS
+          <button type="button" class="simulated-clear" @click="stopSimulatingGps">clear</button>
+        </span>
+
         <!-- Privacy Visibility Selector -->
         <div class="privacy-select-group">
           <label class="privacy-label">Share Location:</label>
@@ -243,7 +259,7 @@ onUnmounted(() => {
           </div>
 
           <div v-else class="status-box">
-            <p>Waiting for GPS location...</p>
+            <p>{{ geoError || 'Waiting for GPS location...' }}</p>
           </div>
         </div>
 
@@ -360,6 +376,23 @@ onUnmounted(() => {
 
 .btn-block {
   width: 100%;
+}
+
+.simulated-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.simulated-clear {
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 0.1rem 0.35rem;
 }
 
 .status-box {

@@ -66,6 +66,7 @@ export interface SubmissionData {
   quest: number | null
   team: number | null
   team_name?: string
+  quest_title?: string | null
   platform: 'osm' | 'commons' | 'wikidata'
   external_id: string
   author_username: string

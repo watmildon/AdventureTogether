@@ -161,6 +161,18 @@ Pages to try once seeded:
 
 Browsers only expose geolocation on `localhost` or HTTPS. To test on a phone against the Vite dev server over the LAN you will need an HTTPS tunnel or a self-signed cert.
 
+### Simulating a GPS position
+
+The map page needs a GPS fix before it shows the mapping-tool deep links or sends location pings. For testing on a desktop, or to pretend you are inside an event perimeter, add `lat` and `lng` query parameters to the map URL:
+
+```
+http://localhost:3000/events/1/map?lat=37.781&lng=-122.412
+```
+
+That position is used instead of the browser's Geolocation API (no permission prompt) and is remembered in `localStorage` under `simulated_gps`, so later visits keep using it until you click **clear** on the "Simulated GPS" badge in the page header. The coordinates above sit inside the demo event seeded in section 4.
+
+Simulation is honoured only in `npm run dev` builds. A production build ignores it unless it was built with `VITE_ALLOW_SIMULATED_GPS=true`, which is intended for staging environments only.
+
 ---
 
 ## 5. Running the tests
@@ -187,7 +199,7 @@ cd frontend && npx vitest run
 
 **Backend connects to Postgres unexpectedly.** `settings.py` switches to PostGIS whenever `POSTGRES_DB` is set in the environment. Unset it for SpatiaLite.
 
-**Frontend tests fail with `Cannot read properties of undefined (reading 'clear')` on `localStorage`.** Node 22+ ships a native `localStorage` global that is undefined unless Node is started with `--localstorage-file`, and it shadows the jsdom implementation Vitest provides. This affects tests only, not the app. Use Node 20 for the test suite, or add a Vitest setup file that assigns a jsdom `localStorage` onto `globalThis`.
+**Frontend tests fail with `Cannot read properties of undefined (reading 'clear')` on `localStorage`.** Node 22+ ships a native `localStorage` global that is undefined unless Node is started with `--localstorage-file`, and it shadows the jsdom implementation Vitest provides. `frontend/src/__tests__/setup.ts` works around this; if you see the error, check that `setupFiles` in `vite.config.ts` still points at it.
 
 **Map tiles do not load.** Tiles come from the public OpenStreetMap tile servers and need internet access. The Leaflet CSS is also loaded from a CDN in `frontend/index.html`.
 

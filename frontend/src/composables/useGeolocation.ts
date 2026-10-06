@@ -8,6 +8,61 @@ import { api } from '../api'
 
 export type VisibilityTier = 'nobody' | 'team' | 'quest'
 
+export interface SimulatedPosition {
+  lat: number
+  lng: number
+}
+
+/** localStorage key under which a simulated GPS position is persisted. */
+export const SIMULATED_GPS_KEY = 'simulated_gps'
+
+/**
+ * Simulated positions are only honoured in dev builds, or when a production
+ * build is explicitly started with VITE_ALLOW_SIMULATED_GPS=true (e.g. staging).
+ */
+const simulationAllowed = (): boolean =>
+  Boolean(import.meta.env.DEV) || import.meta.env.VITE_ALLOW_SIMULATED_GPS === 'true'
+
+/**
+ * Returns a simulated GPS position for testing, or null when none is configured.
+ *
+ * Sources, in priority order:
+ *   1. `?lat=<lat>&lng=<lng>` on the current URL. When present it is also
+ *      persisted to localStorage so navigation keeps using it.
+ *   2. A previously persisted position in localStorage.
+ *
+ * Open the map as e.g. `/events/1/map?lat=37.781&lng=-122.412` to activate it.
+ */
+export function readSimulatedPosition(search: string = window.location.search): SimulatedPosition | null {
+  if (!simulationAllowed()) return null
+
+  const params = new URLSearchParams(search)
+  const lat = parseFloat(params.get('lat') ?? '')
+  const lng = parseFloat(params.get('lng') ?? '')
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    const position = { lat, lng }
+    localStorage.setItem(SIMULATED_GPS_KEY, JSON.stringify(position))
+    return position
+  }
+
+  try {
+    const stored = localStorage.getItem(SIMULATED_GPS_KEY)
+    if (!stored) return null
+    const parsed = JSON.parse(stored)
+    if (Number.isFinite(parsed?.lat) && Number.isFinite(parsed?.lng)) {
+      return { lat: parsed.lat, lng: parsed.lng }
+    }
+  } catch {
+    // Corrupt value: ignore and fall through to real GPS
+  }
+  return null
+}
+
+/** Removes any persisted simulated position so real GPS is used again. */
+export function clearSimulatedPosition(): void {
+  localStorage.removeItem(SIMULATED_GPS_KEY)
+}
+
 export function useGeolocation(eventId: number | string) {
   const coords = ref<{ lat: number; lng: number } | null>(null)
   const accuracy = ref<number | null>(null)
@@ -16,6 +71,7 @@ export function useGeolocation(eventId: number | string) {
     (localStorage.getItem('privacy_visibility') as VisibilityTier) || 'team'
   )
   const isTracking = ref<boolean>(false)
+  const isSimulated = ref<boolean>(false)
   const error = ref<string | null>(null)
   const lastPingTime = ref<Date | null>(null)
 
@@ -72,6 +128,25 @@ export function useGeolocation(eventId: number | string) {
    * Starts geolocation watch and periodic heartbeat.
    */
   const startTracking = () => {
+    // Testing aid: a simulated position bypasses the browser's Geolocation API entirely.
+    const simulated = readSimulatedPosition()
+    if (simulated) {
+      isSimulated.value = true
+      isTracking.value = true
+      error.value = null
+      coords.value = { lat: simulated.lat, lng: simulated.lng }
+      accuracy.value = 5
+      if (isForeground.value) {
+        sendPing()
+      }
+      heartbeatTimer = setInterval(() => {
+        if (isForeground.value && isTracking.value) {
+          sendPing()
+        }
+      }, 10000)
+      return
+    }
+
     if (!navigator.geolocation) {
       error.value = 'Geolocation is not supported by your browser.'
       return
@@ -144,6 +219,7 @@ export function useGeolocation(eventId: number | string) {
     isForeground,
     visibility,
     isTracking,
+    isSimulated,
     error,
     lastPingTime,
     setVisibility,
