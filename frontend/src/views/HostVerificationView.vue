@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { api, type SubmissionData, type EventData } from '../api'
+import { api, type SubmissionData, type EventData, type QuestProgressData } from '../api'
+import { PLATFORMS, platformInfo } from '../composables/useQuestTypes'
 
 const route = useRoute()
 const eventId = route.params.id as string
@@ -16,6 +17,14 @@ const notification = ref<string | null>(null)
 // Filter state
 const filterStatus = ref<'all' | 'pending' | 'verified'>('all')
 const filterPlatform = ref<string>('all')
+
+/** Platform filter options: every known platform, in the shared display order. */
+const platformOptions = Object.entries(PLATFORMS).map(([value, { label }]) => ({ value, label }))
+
+// Team progress drawer, opened from a submission's team cell
+const progressTeam = ref<{ id: number; name: string } | null>(null)
+const teamProgress = ref<QuestProgressData[]>([])
+const progressLoading = ref(false)
 
 const loadSubmissions = async () => {
   try {
@@ -45,6 +54,11 @@ const handleVerifyToggle = async (submission: SubmissionData) => {
     submission.is_verified = updated.is_verified
     submission.verified_by_username = updated.verified_by_username
     submission.verified_at = updated.verified_at
+
+    // Verification changes progress counts and points; keep an open progress drawer current
+    if (progressTeam.value && submission.team === progressTeam.value.id) {
+      showTeamProgress(progressTeam.value.id, progressTeam.value.name)
+    }
 
     notification.value = updated.is_verified
       ? `Submission #${submission.external_id} marked as verified!`
@@ -79,11 +93,35 @@ const handleTriggerHarvest = async () => {
   }
 }
 
-const getPlatformIcon = (platform: string) => {
-  if (platform === 'osm') return '🗺️ OSM'
-  if (platform === 'commons') return '📸 Commons'
-  if (platform === 'wikidata') return '📊 Wikidata'
-  return platform
+/** Badge text for a submission's platform, e.g. "🕰️ OpenHistoricalMap". */
+const getPlatformBadge = (sub: SubmissionData) => {
+  const info = platformInfo(sub.platform, sub.platform_display)
+  return `${info.icon} ${info.label}`
+}
+
+const getPlatformColor = (sub: SubmissionData) => platformInfo(sub.platform).color
+
+/** "3 elements" for counted quests; element_count defaults to 1 on older submissions. */
+const formatElementCount = (count?: number) => {
+  const n = count ?? 1
+  return `${n} element${n === 1 ? '' : 's'}`
+}
+
+const formatDateTime = (iso?: string | null) =>
+  iso ? new Date(iso).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
+
+/** Opens the progress drawer for a team (reloads it so it reflects the latest verifications). */
+const showTeamProgress = async (teamId: number, teamName: string) => {
+  progressTeam.value = { id: teamId, name: teamName }
+  progressLoading.value = true
+  try {
+    teamProgress.value = await api.getTeamProgress(teamId)
+  } catch {
+    teamProgress.value = []
+    error.value = `Failed to load progress for ${teamName}.`
+  } finally {
+    progressLoading.value = false
+  }
 }
 
 onMounted(() => {
@@ -128,15 +166,34 @@ onMounted(() => {
         <label class="filter-label">Source Platform:</label>
         <select v-model="filterPlatform" class="form-select filter-select">
           <option value="all">All Platforms</option>
-          <option value="osm">OpenStreetMap</option>
-          <option value="commons">Wikimedia Commons</option>
-          <option value="wikidata">Wikidata</option>
+          <option v-for="option in platformOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
         </select>
       </div>
 
       <div class="filter-stats">
         <span>Showing <strong>{{ filteredSubmissions.length }}</strong> of {{ submissions.length }}</span>
       </div>
+    </div>
+
+    <!-- Team progress drawer -->
+    <div v-if="progressTeam" class="card progress-card">
+      <div class="progress-header">
+        <h3 class="progress-title">Progress: {{ progressTeam.name }}</h3>
+        <button type="button" class="btn btn-outline" @click="progressTeam = null">Close</button>
+      </div>
+      <p v-if="progressLoading" class="text-muted">Loading progress…</p>
+      <ul v-else class="progress-list">
+        <li v-for="row in teamProgress" :key="row.quest" :class="['progress-row', { done: row.completed_at }]">
+          <span class="progress-quest">{{ row.quest_title }}</span>
+          <span class="progress-count">{{ row.count }}/{{ row.target_count }}</span>
+          <span class="progress-points">
+            {{ row.points_awarded ? `+${row.points_reward} pts` : `${row.points_reward} pts` }}
+          </span>
+        </li>
+        <li v-if="teamProgress.length === 0" class="text-muted">No quests for this event.</li>
+      </ul>
     </div>
 
     <!-- Submissions Table -->
@@ -149,8 +206,9 @@ onMounted(() => {
       <table v-else class="submissions-table">
         <thead>
           <tr>
-            <th style="width: 120px;">Platform</th>
+            <th style="width: 140px;">Platform</th>
             <th>ID / Changeset</th>
+            <th>Elements</th>
             <th>Contributor</th>
             <th>Matched Quest</th>
             <th>Assigned Team</th>
@@ -161,13 +219,17 @@ onMounted(() => {
         <tbody>
           <tr v-for="sub in filteredSubmissions" :key="sub.id" :class="{ 'row-verified': sub.is_verified }">
             <td>
-              <span class="badge badge-primary">{{ getPlatformIcon(sub.platform) }}</span>
+              <span class="badge platform-badge" :style="{ '--platform-color': getPlatformColor(sub) }">
+                {{ getPlatformBadge(sub) }}
+              </span>
             </td>
             <td>
               <a :href="sub.external_url" target="_blank" class="external-link">
                 #{{ sub.external_id }} ↗
               </a>
+              <span v-if="sub.contributed_at" class="contributed-at">{{ formatDateTime(sub.contributed_at) }}</span>
             </td>
+            <td class="element-count">{{ formatElementCount(sub.element_count) }}</td>
             <td>
               <strong>{{ sub.author_username }}</strong>
             </td>
@@ -176,7 +238,12 @@ onMounted(() => {
               <span v-else class="text-muted">Uncategorized</span>
             </td>
             <td>
-              <span v-if="sub.team_name" class="team-badge">{{ sub.team_name }}</span>
+              <template v-if="sub.team_name && sub.team">
+                <span class="team-badge">{{ sub.team_name }}</span>
+                <button type="button" class="link-btn" @click="showTeamProgress(sub.team, sub.team_name)">
+                  progress
+                </button>
+              </template>
               <span v-else class="text-muted">Individual</span>
             </td>
             <td>
@@ -306,6 +373,80 @@ onMounted(() => {
 .external-link {
   font-weight: var(--font-weight-medium);
   font-family: var(--font-family-mono);
+}
+
+.platform-badge {
+  /* Tinted with the platform's quest-type colour */
+  color: var(--platform-color, var(--color-primary));
+  border: 1px solid var(--platform-color, var(--color-primary-border));
+  background-color: var(--color-bg-surface);
+  white-space: nowrap;
+}
+
+.contributed-at {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.element-count {
+  white-space: nowrap;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.link-btn {
+  display: block;
+  background: none;
+  border: none;
+  padding: 0;
+  margin-top: 2px;
+  color: var(--color-primary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
+.progress-card {
+  margin-bottom: var(--space-6);
+  padding: var(--space-4);
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-2);
+}
+
+.progress-title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+}
+
+.progress-list {
+  list-style: none;
+}
+
+.progress-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: var(--space-4);
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+}
+
+.progress-row.done {
+  color: var(--color-success);
+}
+
+.progress-count, .progress-points {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .team-badge {

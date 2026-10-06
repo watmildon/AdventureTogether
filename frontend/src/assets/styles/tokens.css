@@ -27,6 +27,18 @@
   --color-danger-light: #fef2f2;
   --color-danger-border: #fca5a5;
 
+  /* Quest type accents (keep in sync with the hex values in composables/useQuestTypes.ts,
+     which Leaflet needs as literals because SVG presentation attributes ignore var()) */
+  --color-type-osm: #16a34a;
+  --color-type-commons: #0369a1;
+  --color-type-wikidata: #9f1239;
+  --color-type-wikidata-statement: #be123c;
+  --color-type-checkin: #d97706;
+  --color-type-notes: #0891b2;
+  --color-type-ohm: #7c3aed;
+  --color-type-code: #334155;
+  --color-type-imagery: #db2777;
+
   /* Neutrals & Surfaces */
   --color-bg-main: #f8fafc;
   --color-bg-surface: #ffffff;

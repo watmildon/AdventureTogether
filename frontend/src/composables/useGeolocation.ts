@@ -4,7 +4,7 @@
  */
 
 import { ref, onMounted, onUnmounted, getCurrentInstance } from 'vue'
-import { api } from '../api'
+import { api, type LocationPingData } from '../api'
 
 export type VisibilityTier = 'nobody' | 'team' | 'quest'
 
@@ -74,11 +74,19 @@ export function useGeolocation(eventId: number | string) {
   const isSimulated = ref<boolean>(false)
   const error = ref<string | null>(null)
   const lastPingTime = ref<Date | null>(null)
+  /** Latest ping response; carries `checkins` once the server's check-in matcher runs. */
+  const lastPing = ref<LocationPingData | null>(null)
 
   let watchId: number | null = null
   let heartbeatTimer: any = null
 
-  const userIdentifier = localStorage.getItem('participant_id') || `user-${Math.random().toString(36).substring(2, 9)}`
+  // Persist a generated id so pings, the "Active Teammates" filter and check-ins all
+  // refer to the same participant across reloads (JoinTeamView uses the same key).
+  const userIdentifier: string = localStorage.getItem('participant_id') || (() => {
+    const generated = `user-${Math.random().toString(36).substring(2, 9)}`
+    localStorage.setItem('participant_id', generated)
+    return generated
+  })()
   const displayName = localStorage.getItem('participant_name') || 'Anonymous Mapper'
 
   /**
@@ -88,7 +96,7 @@ export function useGeolocation(eventId: number | string) {
     if (!coords.value || !isForeground.value || !isTracking.value) return
 
     try {
-      await api.pingLocation({
+      lastPing.value = await api.pingLocation({
         event: eventId,
         user_identifier: userIdentifier,
         display_name: displayName,
@@ -222,6 +230,8 @@ export function useGeolocation(eventId: number | string) {
     isSimulated,
     error,
     lastPingTime,
+    lastPing,
+    userIdentifier,
     setVisibility,
     startTracking,
     stopTracking

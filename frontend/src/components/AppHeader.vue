@@ -26,7 +26,8 @@ import { RouterLink } from 'vue-router'
   align-items: center;
   position: sticky;
   top: 0;
-  z-index: 1000;
+  /* Above Leaflet's panes and controls (z-index up to 1000) so maps scroll under the header */
+  z-index: 1100;
 }
 
 .header-container {

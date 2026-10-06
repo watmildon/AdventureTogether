@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { useRoute, RouterLink } from 'vue-router'
 import L from 'leaflet'
-import { api, type EventData, type QuestData, type LocationPingData } from '../api'
+import { api, type EventData, type QuestData, type LocationPingData, type PingCheckin } from '../api'
 import { useGeolocation, clearSimulatedPosition, type VisibilityTier } from '../composables/useGeolocation'
 import { useDeepLinks } from '../composables/useDeepLinks'
+import { useQuestProgress, readStoredTeamId } from '../composables/useQuestProgress'
+import { createQuestLayer, questPopupHtml, focusQuestLayer } from '../composables/questLayers'
+import QuestPanel from '../components/QuestPanel.vue'
+import LeaderboardList from '../components/LeaderboardList.vue'
 
 const route = useRoute()
 const eventId = route.params.id as string
@@ -23,6 +27,8 @@ const {
   isSimulated,
   error: geoError,
   lastPingTime,
+  lastPing,
+  userIdentifier,
   setVisibility
 } = useGeolocation(eventId)
 
@@ -37,13 +43,40 @@ const stopSimulatingGps = () => {
 
 const { getDeepLinks, launchDeepLink } = useDeepLinks()
 
-const userIdentifier = localStorage.getItem('participant_id') || ''
+// Team progress and leaderboard (polled every 30 s). The team id comes from JoinTeamView's
+// localStorage record, or later from the ping response if the participant joined elsewhere.
+const teamId = ref<number | null>(readStoredTeamId(eventId))
+const {
+  progressByQuest,
+  leaderboard,
+  error: leaderboardError,
+  refresh: refreshProgressAndLeaderboard,
+  refreshProgress,
+  startPolling: startProgressPolling
+} = useQuestProgress(eventId, teamId)
+
+const teamName = computed(() =>
+  leaderboard.value.find((t) => t.id === teamId.value)?.name || localStorage.getItem('team_name') || null
+)
+
+/** Participants hide inactive quests; hosts still see them in the builder. */
+const visibleQuests = computed(() => quests.value.filter((q) => q.is_active !== false))
+
+/** Other participants only: the server also returns our own latest ping. */
+const teammates = computed(() => activeLocations.value.filter((loc) => loc.user_identifier !== userIdentifier))
+
+// Check-in state per quest id. 'verified' is sticky; 'in_range' reflects the latest ping.
+const checkins = ref<Record<number, 'in_range' | 'verified'>>({})
+const checkinToast = ref<{ text: string; questId: number } | null>(null)
+let toastTimer: ReturnType<typeof setTimeout> | null = null
 
 let map: L.Map | null = null
 let perimeterLayer: L.GeoJSON | null = null
 let selfMarker: L.CircleMarker | null = null
+let selfAccuracyCircle: L.Circle | null = null
 let teammateMarkersGroup: L.LayerGroup | null = null
 let questsLayerGroup: L.LayerGroup | null = null
+const questLayers = new Map<number, L.Layer>()
 let pollTimer: any = null
 
 const deepLinks = computed(() => {
@@ -61,6 +94,13 @@ const formatTimeAgo = (dateStr: string) => {
   return `${diffMins} mins ago`
 }
 
+/** "2/5" for popups when the participant has a team, otherwise null. */
+const progressTextFor = (quest: QuestData): string | null => {
+  if (!teamId.value) return null
+  const row = progressByQuest.value.get(quest.id)
+  return `${row?.count ?? 0}/${row?.target_count ?? quest.target_count ?? 1}`
+}
+
 const initMap = async () => {
   const mapElement = document.getElementById('map')
   if (!mapElement) return
@@ -75,11 +115,17 @@ const initMap = async () => {
   questsLayerGroup = L.layerGroup().addTo(map)
   teammateMarkersGroup = L.layerGroup().addTo(map)
 
+  // GPS may have resolved before the map existed (simulated positions resolve instantly)
+  updateSelfMarker()
+
   await loadEventAndQuests()
   await pollActiveLocations()
+  loadCheckins()
+  refreshProgressAndLeaderboard()
 
-  // Poll teammate locations every 8 seconds
+  // Poll teammate locations every 8 seconds; progress and leaderboard every 30 seconds
   pollTimer = setInterval(pollActiveLocations, 8000)
+  startProgressPolling()
 }
 
 const loadEventAndQuests = async () => {
@@ -104,26 +150,42 @@ const loadEventAndQuests = async () => {
       map.fitBounds(perimeterLayer.getBounds(), { padding: [30, 30] })
     }
 
-    // Render Quest Targets
-    if (questsLayerGroup) {
-      questsLayerGroup.clearLayers()
-      quests.value.forEach((q) => {
-        if (q.target_geometry && q.target_geometry.type === 'Point') {
-          const [lng, lat] = q.target_geometry.coordinates
-          const marker = L.circleMarker([lat, lng], {
-            radius: 8,
-            fillColor: '#d97706',
-            color: '#ffffff',
-            weight: 2,
-            fillOpacity: 0.9
-          }).bindPopup(`<b>${q.title}</b><br/>${q.description}<br/>Reward: ${q.points_reward} pts`)
-          questsLayerGroup?.addLayer(marker)
-        }
-      })
-    }
+    renderQuestLayers()
   } catch (err: any) {
     // Event load error
   }
+}
+
+/** Quest targets: points as type-coloured markers, polygons as light outlines. */
+const renderQuestLayers = () => {
+  if (!questsLayerGroup) return
+  questsLayerGroup.clearLayers()
+  questLayers.clear()
+
+  visibleQuests.value.forEach((quest) => {
+    const layer = createQuestLayer(quest, questPopupHtml(quest, progressTextFor(quest)))
+    if (!layer) return
+    questLayers.set(quest.id, layer)
+    questsLayerGroup?.addLayer(layer)
+  })
+
+  // Keep the participant's own marker above quest markers
+  selfMarker?.bringToFront()
+}
+
+// Refresh popup text in place when progress changes, so an open popup is not closed by a re-render
+watch(progressByQuest, () => {
+  visibleQuests.value.forEach((quest) => {
+    questLayers.get(quest.id)?.setPopupContent(questPopupHtml(quest, progressTextFor(quest)))
+  })
+})
+
+/** "Show on map": pan to the quest's target and open its popup (scrolling the map into view on phones). */
+const showQuestOnMap = (quest: QuestData) => {
+  const layer = questLayers.get(quest.id)
+  if (!map || !layer) return
+  document.getElementById('map')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  focusQuestLayer(map, layer)
 }
 
 const pollActiveLocations = async () => {
@@ -158,12 +220,25 @@ const pollActiveLocations = async () => {
   }
 }
 
-// Watch coords and update self marker
+/**
+ * Draws (or moves) the participant's own position: a solid blue dot with a white ring,
+ * plus a faint accuracy circle, distinct from the smaller teal teammate markers.
+ */
 const updateSelfMarker = () => {
   if (!map || !coords.value) return
+  const latLng: L.LatLngExpression = [coords.value.lat, coords.value.lng]
 
   if (!selfMarker) {
-    selfMarker = L.circleMarker([coords.value.lat, coords.value.lng], {
+    selfAccuracyCircle = L.circle(latLng, {
+      radius: accuracy.value ?? 0,
+      color: '#2563eb',
+      weight: 1,
+      opacity: 0.4,
+      fillColor: '#2563eb',
+      fillOpacity: 0.1,
+      interactive: false
+    }).addTo(map)
+    selfMarker = L.circleMarker(latLng, {
       radius: 9,
       fillColor: '#2563eb',
       color: '#ffffff',
@@ -172,8 +247,76 @@ const updateSelfMarker = () => {
     }).bindPopup('<b>You are here</b><br/>Sharing GPS location')
     selfMarker.addTo(map)
   } else {
-    selfMarker.setLatLng([coords.value.lat, coords.value.lng])
+    selfMarker.setLatLng(latLng)
+    selfAccuracyCircle?.setLatLng(latLng)
+    selfAccuracyCircle?.setRadius(accuracy.value ?? 0)
   }
+}
+
+watch(coords, updateSelfMarker)
+
+const showCheckinToast = (questId: number, title: string) => {
+  checkinToast.value = { text: `You're at ${title}`, questId }
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => (checkinToast.value = null), 6000)
+}
+
+/**
+ * Applies the `checkins` list from a ping response. Toasts the first time we see the
+ * participant at a quest and refreshes team progress when a check-in becomes verified.
+ */
+const applyPingCheckins = (list: PingCheckin[] | undefined) => {
+  if (!Array.isArray(list)) return
+  const next: Record<number, 'in_range' | 'verified'> = {}
+  // Verified check-ins stay; in-range ones are replaced by what this ping reports
+  for (const [id, status] of Object.entries(checkins.value)) {
+    if (status === 'verified') next[Number(id)] = status
+  }
+
+  let newlyVerified = false
+  for (const checkin of list) {
+    if (!checkin || typeof checkin.quest !== 'number') continue
+    if (checkin.status !== 'in_range' && checkin.status !== 'verified') continue
+    const previous = checkins.value[checkin.quest]
+    if (previous === 'verified') continue
+
+    next[checkin.quest] = checkin.status
+    if (checkin.status === 'verified') newlyVerified = true
+    if (!previous) {
+      const title = checkin.quest_title || quests.value.find((q) => q.id === checkin.quest)?.title || 'a quest'
+      showCheckinToast(checkin.quest, title)
+    }
+  }
+
+  checkins.value = next
+  if (newlyVerified) refreshProgress()
+}
+
+watch(lastPing, (ping) => {
+  if (!ping) return
+  applyPingCheckins(ping.checkins)
+  // The server resolves our team from the membership table; use it if localStorage had none
+  if (!teamId.value && ping.team) teamId.value = ping.team
+})
+
+/** Marks quests the participant already checked in to (e.g. before a reload). */
+const loadCheckins = async () => {
+  try {
+    const recorded = await api.getCheckins(eventId, userIdentifier)
+    const next = { ...checkins.value }
+    recorded.forEach((c) => {
+      // A revoked check-in (is_verified false) does not count
+      if (typeof c?.quest === 'number' && c.is_verified !== false) next[c.quest] = 'verified'
+    })
+    checkins.value = next
+  } catch {
+    // Check-ins are optional; older servers do not have the endpoint
+  }
+}
+
+const focusToastQuest = () => {
+  const quest = quests.value.find((q) => q.id === checkinToast.value?.questId)
+  if (quest) showQuestOnMap(quest)
 }
 
 onMounted(() => {
@@ -182,6 +325,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
+  if (toastTimer) clearTimeout(toastTimer)
+  map?.remove()
 })
 </script>
 
@@ -224,10 +369,45 @@ onUnmounted(() => {
     <div class="map-layout">
       <div class="map-container">
         <div id="map" class="map-viewport"></div>
+
+        <!-- Check-in feedback from the latest location ping -->
+        <button
+          v-if="checkinToast"
+          type="button"
+          class="checkin-toast"
+          role="status"
+          @click="focusToastQuest"
+        >
+          📍 {{ checkinToast.text }}
+        </button>
       </div>
 
-      <!-- Mapping Tools & Deep Link Sidebar -->
+      <!-- Quests, leaderboard, mapping tools and teammates -->
       <aside class="map-sidebar card">
+        <div class="sidebar-section">
+          <h3 class="section-title">Quests ({{ visibleQuests.length }})</h3>
+          <p v-if="teamId" class="section-desc">
+            Progress for <strong>{{ teamName || `team #${teamId}` }}</strong>
+          </p>
+          <p v-else class="section-desc">
+            <RouterLink :to="`/events/${eventId}/join`">Join a team</RouterLink> to track progress and earn points.
+          </p>
+          <QuestPanel
+            :quests="visibleQuests"
+            :progress-by-quest="progressByQuest"
+            :has-team="Boolean(teamId)"
+            :checkins="checkins"
+            @show-on-map="showQuestOnMap"
+          />
+        </div>
+
+        <div class="sidebar-section">
+          <h3 class="section-title">Leaderboard</h3>
+          <p v-if="leaderboardError" class="section-desc">{{ leaderboardError }}</p>
+          <p v-else-if="leaderboard.length === 0" class="section-desc">No teams yet.</p>
+          <LeaderboardList v-else :entries="leaderboard" :limit="5" :highlight-team-id="teamId" />
+        </div>
+
         <div class="sidebar-section">
           <h3 class="section-title">Mapping Tool Deep Links</h3>
           <p class="section-desc">Tap to launch external mapping editors centered at your GPS location:</p>
@@ -264,9 +444,10 @@ onUnmounted(() => {
         </div>
 
         <div class="sidebar-section">
-          <h3 class="section-title">Active Teammates ({{ activeLocations.length }})</h3>
+          <h3 class="section-title">Active Teammates ({{ teammates.length }})</h3>
+          <p v-if="teammates.length === 0" class="section-desc">Nobody else is sharing their location with you right now.</p>
           <ul class="teammate-list">
-            <li v-for="loc in activeLocations" :key="loc.id" class="teammate-item">
+            <li v-for="loc in teammates" :key="loc.id" class="teammate-item">
               <div>
                 <strong>{{ loc.display_name }}</strong>
                 <span class="team-subtext">{{ loc.team_name || 'Individual' }}</span>
@@ -303,6 +484,7 @@ onUnmounted(() => {
 .header-left, .header-right {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-3);
 }
 
@@ -337,6 +519,31 @@ onUnmounted(() => {
 .map-container {
   flex: 1;
   height: 100%;
+  position: relative;
+}
+
+/* Keep the map clear of the sticky header when "Show on map" scrolls it into view */
+.map-viewport {
+  scroll-margin-top: calc(var(--header-height) + var(--space-2));
+}
+
+.checkin-toast {
+  position: absolute;
+  top: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  /* Above Leaflet panes and controls (z-index up to 1000), below the sticky app header */
+  z-index: 999;
+  max-width: calc(100% - 2 * var(--space-6));
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-full);
+  background-color: var(--color-warning-light);
+  color: var(--color-text-main);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
 }
 
 .map-sidebar {
@@ -426,5 +633,38 @@ onUnmounted(() => {
 .time-badge {
   color: var(--color-text-muted);
   font-size: 0.7rem;
+}
+
+/* Phone width: stack a tall map above the sidebar instead of squeezing both side by side */
+@media (max-width: 768px) {
+  .event-map-view {
+    height: auto;
+    padding: var(--space-2);
+  }
+
+  .map-header {
+    margin-bottom: var(--space-2);
+  }
+
+  .map-layout {
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .map-container {
+    flex: none;
+    height: 55vh;
+    min-height: 55vh;
+  }
+
+  .map-container .map-viewport {
+    min-height: 0;
+  }
+
+  .map-sidebar {
+    width: 100%;
+    overflow: visible;
+    padding: var(--space-4);
+  }
 }
 </style>

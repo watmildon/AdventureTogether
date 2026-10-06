@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
+import { api, type LeaderboardEntry } from '../api'
+import LeaderboardList from '../components/LeaderboardList.vue'
 
 interface EventItem {
   id: number
@@ -17,6 +19,23 @@ const events = ref<EventItem[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
 
+// Top teams per event id, filled in after the event list loads (optional decoration)
+const leaderboards = ref<Record<number, LeaderboardEntry[]>>({})
+
+/** Loads each event's leaderboard in parallel; failures just leave that card without one. */
+const fetchLeaderboards = async () => {
+  await Promise.all(
+    events.value.map(async (event) => {
+      try {
+        const entries = await api.getLeaderboard(event.id)
+        leaderboards.value = { ...leaderboards.value, [event.id]: entries }
+      } catch {
+        // Leaderboard is optional on the home page
+      }
+    })
+  )
+}
+
 const fetchEvents = async () => {
   try {
     loading.value = true
@@ -24,6 +43,7 @@ const fetchEvents = async () => {
     if (res.ok) {
       const data = await res.json()
       events.value = data.results || data
+      fetchLeaderboards()
     } else {
       // Fallback empty list
       events.value = []
@@ -69,6 +89,10 @@ onMounted(() => {
             <span class="badge badge-primary">#{{ event.hashtag }}</span>
           </div>
           <p class="event-description">{{ event.description }}</p>
+          <div v-if="leaderboards[event.id]?.length" class="event-leaderboard">
+            <span class="leaderboard-label">Top teams</span>
+            <LeaderboardList :entries="leaderboards[event.id]" :limit="3" compact />
+          </div>
           <div class="event-actions">
             <RouterLink :to="`/events/${event.id}/map`" class="btn btn-primary">
               View Map
@@ -150,6 +174,20 @@ onMounted(() => {
   color: var(--color-text-muted);
   margin-bottom: var(--space-4);
   flex-grow: 1;
+}
+
+.event-leaderboard {
+  margin-bottom: var(--space-4);
+}
+
+.leaderboard-label {
+  display: block;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--space-1);
 }
 
 .event-actions {

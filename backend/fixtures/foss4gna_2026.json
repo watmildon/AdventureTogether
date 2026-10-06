@@ -120,7 +120,7 @@
       "criteria_type": "osm_tags",
       "validation_rules": {
         "required_tags": {
-          "amenity": "*",
+          "amenity": "restaurant|cafe",
           "opening_hours": "*"
         },
         "target_count": 5,

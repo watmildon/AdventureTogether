@@ -102,4 +102,21 @@ describe('Simulated GPS position (testing aid)', () => {
     expect(isTracking.value).toBe(false)
     expect(error.value).toMatch(/not supported/i)
   })
+
+  it('persists a generated participant id and exposes the latest ping response', async () => {
+    localStorage.setItem(SIMULATED_GPS_KEY, JSON.stringify({ lat: 38.579, lng: -121.49 }))
+    const { api } = await import('../../api')
+    const response = { id: 1, checkins: [{ quest: 8, quest_title: 'Icebreaker check-in', status: 'in_range', distance_m: 12 }] }
+    ;(api.pingLocation as any).mockResolvedValueOnce(response)
+
+    const { userIdentifier, lastPing, startTracking, stopTracking } = useGeolocation(2)
+    expect(userIdentifier).toMatch(/^user-/)
+    expect(localStorage.getItem('participant_id')).toBe(userIdentifier)
+    // A second instance (e.g. after a reload) reuses the same id
+    expect(useGeolocation(2).userIdentifier).toBe(userIdentifier)
+
+    startTracking()
+    await vi.waitFor(() => expect(lastPing.value).toEqual(response))
+    stopTracking()
+  })
 })

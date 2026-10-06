@@ -133,7 +133,12 @@ class Quest(models.Model):
         for key, expected_val in required_tags.items():
             if key not in tags:
                 return False
-            if expected_val != '*' and str(tags[key]).lower() != str(expected_val).lower():
+            if expected_val == '*':
+                continue
+            # "restaurant|cafe" accepts any of the listed values (same convention as the
+            # Overpass harvester's anchored regex alternation).
+            accepted = {v.strip().lower() for v in str(expected_val).split('|') if v.strip()}
+            if str(tags[key]).lower() not in accepted:
                 return False
 
         return True

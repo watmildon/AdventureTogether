@@ -97,3 +97,9 @@ The **Existing Quests** list under the form shows each quest's type, points, and
    - **Elements** shows how many distinct contributions the submission counts for (e.g. `3 elements` for three cafes tagged in one changeset).
    - Check the **Verify** button. A team's progress on a quest is the sum of its verified elements, and the quest's points are awarded once, when progress reaches the quest's target. Un-verifying takes them back if progress drops below the target.
    - Click **progress** under a team name to see that team's count, target and awarded points for every quest.
+
+<!-- BEGIN: check-in quests -->
+## Check-in quests
+
+Some quests only ask you to be somewhere: the Welcome Icebreaker, the west steps of the Capitol, a memorial in Capitol Park. These are **check-in quests**, and you complete them just by going there with AdventureTogether open on your phone. Start location sharing on the event map and keep the tab in the foreground as you arrive. Once your location lands inside the quest's circle (usually 50 m, or anywhere inside the outlined area), the quest shows as **in range**. Most check-ins count straight away. Some ask you to stay a few minutes, so keep the app open until the quest shows **verified**; if you leave for more than about ten minutes before then, the timer starts again. Check-ins only count while the quest is open, so a quest set for Monday evening will not count on Monday morning. Your team gets the points automatically; if you haven't joined a team yet, your visit is still recorded, and your team is credited the next time you check in at that spot (while the quest is still open) after joining. Choosing **Nobody** for your location visibility hides your marker from other participants but still lets you check in. Hosts can see check-ins and may remove one that looks wrong.
+<!-- END: check-in quests -->
