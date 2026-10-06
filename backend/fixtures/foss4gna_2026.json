@@ -1,0 +1,750 @@
+{
+  "event": {
+    "title": "FOSS4G NA 2026 Open Data Hunt",
+    "slug": "foss4gna-2026",
+    "description": "Walk downtown Sacramento between sessions, fix the map, and feed photos and facts back into OSM, Wikimedia Commons, Wikidata and OpenHistoricalMap. Every quest is inspired by a talk on the programme.",
+    "hashtag": "FOSS4GNA2026",
+    "bounding_polygon": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [
+            -121.509,
+            38.572
+          ],
+          [
+            -121.481,
+            38.572
+          ],
+          [
+            -121.481,
+            38.59
+          ],
+          [
+            -121.509,
+            38.59
+          ],
+          [
+            -121.509,
+            38.572
+          ]
+        ]
+      ]
+    },
+    "start_time": "2026-11-02T08:00:00-08:00",
+    "end_time": "2026-11-04T18:00:00-08:00",
+    "is_active": true,
+    "schedule_url": "https://talks.osgeo.org/foss4g-na-2026/schedule/export/schedule.json"
+  },
+  "quests": [
+    {
+      "title": "Julia Morgan built this",
+      "description": "The Sheraton is the 1923 Sacramento Public Market, designed by Julia Morgan, but OSM only knows it as a hotel. In iD or Every Door, add architect=Julia Morgan, start_date=1923, historic=building and wikidata=Q111393295 to the building outline. Put #FOSS4GNA2026 in the changeset comment (StreetComplete and Every Door let you set it once in their settings) so the hunt can credit your team.",
+      "criteria_type": "osm_tags",
+      "validation_rules": {
+        "required_tags": {
+          "architect": "*",
+          "wikidata": "*"
+        },
+        "target_count": 1,
+        "radius_m": 300,
+        "require_hashtag": true
+      },
+      "target_geometry": {
+        "type": "Point",
+        "coordinates": [
+          -121.48993,
+          38.57902
+        ]
+      },
+      "points_reward": 25,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "RFWDWJ"
+      }
+    },
+    {
+      "title": "Give the venue a face",
+      "description": "Photograph the restored Public Market facade on J Street and upload it with the Wikimedia Commons app (or commons.wikimedia.org/wiki/Special:UploadWizard), in a Sacramento category. Include #FOSS4GNA2026 in the upload description or summary so the hunt can credit your team.",
+      "criteria_type": "wikimedia_commons",
+      "validation_rules": {
+        "target_count": 1
+      },
+      "target_geometry": {
+        "type": "Point",
+        "coordinates": [
+          -121.49,
+          38.5795
+        ]
+      },
+      "points_reward": 20,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "BDAKRT"
+      }
+    },
+    {
+      "title": "Fill in the architect on Wikidata",
+      "description": "Open the venue item Q111393295 on wikidata.org and add architect (P84) = Julia Morgan (Q274663) and inception (P571) = 1923, each with a reference if you can. Put #FOSS4GNA2026 in the edit summary so the hunt can credit your team.",
+      "criteria_type": "wikidata_statement",
+      "validation_rules": {
+        "qid": "Q111393295",
+        "properties": [
+          "P84",
+          "P571"
+        ],
+        "target_count": 1
+      },
+      "target_geometry": {
+        "type": "Point",
+        "coordinates": [
+          -121.48993,
+          38.57902
+        ]
+      },
+      "points_reward": 25,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "KREKDB"
+      }
+    },
+    {
+      "title": "Farm-to-fork hours",
+      "description": "Most restaurants and cafes between 10th/K and 12th/J have no opening hours in OSM. Add opening_hours to five of them; StreetComplete asks the question for you and Every Door shows what is missing. Put #FOSS4GNA2026 in the changeset comment (StreetComplete and Every Door let you set it once in their settings) so the hunt can credit your team.",
+      "criteria_type": "osm_tags",
+      "validation_rules": {
+        "required_tags": {
+          "amenity": "*",
+          "opening_hours": "*"
+        },
+        "target_count": 5,
+        "require_hashtag": true
+      },
+      "target_geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.496,
+              38.5775
+            ],
+            [
+              -121.488,
+              38.5775
+            ],
+            [
+              -121.488,
+              38.5825
+            ],
+            [
+              -121.496,
+              38.5825
+            ],
+            [
+              -121.496,
+              38.5775
+            ]
+          ]
+        ]
+      },
+      "points_reward": 40,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "9NC8UG"
+      }
+    },
+    {
+      "title": "Icebreaker check-in",
+      "description": "Come to the Welcome Icebreaker BBQ on Monday evening with AdventureTogether open and location sharing on. Your check-in counts automatically once you are at the venue.",
+      "criteria_type": "location_checkin",
+      "validation_rules": {
+        "radius_m": 60,
+        "min_minutes": 0
+      },
+      "target_geometry": {
+        "type": "Point",
+        "coordinates": [
+          -121.48993,
+          38.57902
+        ]
+      },
+      "points_reward": 10,
+      "is_active": true,
+      "window_start": "2026-11-02T18:00:00-08:00",
+      "window_end": "2026-11-02T20:00:00-08:00",
+      "inspired_by": {
+        "title": "Welcome Icebreaker BBQ",
+        "speakers": [],
+        "start": "2026-11-02T18:00:00-08:00",
+        "room": "Sheraton Grand Sacramento",
+        "track": "Conference Events",
+        "url": "https://www.foss4gna.org/conference-events"
+      }
+    },
+    {
+      "title": "Shade the grid",
+      "description": "Map ten street trees on the blocks between the venue and Cesar Chavez Plaza as natural=tree with leaf_type (broadleaved or needleleaved); add genus or species if you know it. Every Door is quickest for points like these. Put #FOSS4GNA2026 in the changeset comment (StreetComplete and Every Door let you set it once in their settings) so the hunt can credit your team.",
+      "criteria_type": "osm_tags",
+      "validation_rules": {
+        "required_tags": {
+          "natural": "tree",
+          "leaf_type": "*"
+        },
+        "target_count": 10,
+        "require_hashtag": true
+      },
+      "target_geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.495,
+              38.5785
+            ],
+            [
+              -121.489,
+              38.5785
+            ],
+            [
+              -121.489,
+              38.582
+            ],
+            [
+              -121.495,
+              38.582
+            ],
+            [
+              -121.495,
+              38.5785
+            ]
+          ]
+        ]
+      },
+      "points_reward": 40,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "ZDHDHP"
+      }
+    },
+    {
+      "title": "Every kerb counts",
+      "description": "Survey five pedestrian crossings around Capitol Park and tag tactile_paving and kerb (raised, lowered, flush) on each crossing node. StreetComplete has quests for both. Put #FOSS4GNA2026 in the changeset comment (StreetComplete and Every Door let you set it once in their settings) so the hunt can credit your team.",
+      "criteria_type": "osm_tags",
+      "validation_rules": {
+        "required_tags": {
+          "highway": "crossing",
+          "tactile_paving": "*",
+          "kerb": "*"
+        },
+        "target_count": 5,
+        "require_hashtag": true
+      },
+      "target_geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.4965,
+              38.5745
+            ],
+            [
+              -121.4885,
+              38.5745
+            ],
+            [
+              -121.4885,
+              38.578
+            ],
+            [
+              -121.4965,
+              38.578
+            ],
+            [
+              -121.4965,
+              38.5745
+            ]
+          ]
+        ]
+      },
+      "points_reward": 40,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "WZM9DM"
+      }
+    },
+    {
+      "title": "Lock it up",
+      "description": "Hundreds of bike racks downtown have no details. Add capacity (and bicycle_parking=stands, wall_loops, etc., plus covered) to ten of them; StreetComplete asks all three. Put #FOSS4GNA2026 in the changeset comment (StreetComplete and Every Door let you set it once in their settings) so the hunt can credit your team.",
+      "criteria_type": "osm_tags",
+      "validation_rules": {
+        "required_tags": {
+          "amenity": "bicycle_parking",
+          "capacity": "*"
+        },
+        "target_count": 10,
+        "require_hashtag": true
+      },
+      "target_geometry": null,
+      "points_reward": 30,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "NYKALL"
+      }
+    },
+    {
+      "title": "Water, mapped",
+      "description": "Find three drinking fountains in the hunt area and add bottle=yes/no (can you fill a bottle?) and wheelchair access, or delete ones that are gone. StreetComplete and Every Door both handle this. Put #FOSS4GNA2026 in the changeset comment (StreetComplete and Every Door let you set it once in their settings) so the hunt can credit your team.",
+      "criteria_type": "osm_tags",
+      "validation_rules": {
+        "required_tags": {
+          "amenity": "drinking_water",
+          "bottle": "*"
+        },
+        "target_count": 3,
+        "require_hashtag": true
+      },
+      "target_geometry": null,
+      "points_reward": 25,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "JLTR3Q"
+      }
+    },
+    {
+      "title": "Close a Note",
+      "description": "Pick an open OpenStreetMap Note inside the hunt area (openstreetmap.org, Map Data layer, or the notes overlay in iD), check it on the ground, fix the map, and resolve the note with #FOSS4GNA2026 in your closing comment.",
+      "criteria_type": "osm_notes",
+      "validation_rules": {
+        "target_count": 1
+      },
+      "target_geometry": null,
+      "points_reward": 20,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "LRZVUR"
+      }
+    },
+    {
+      "title": "Memorial roll call: photos",
+      "description": "Photograph the four Capitol Park memorials that have no image yet: USS California, Spanish War Veterans, Firefighters and Peace Officers. Upload them with the Commons app into Category:Capitol Park (Sacramento). Include #FOSS4GNA2026 in the upload description or summary so the hunt can credit your team.",
+      "criteria_type": "wikimedia_commons",
+      "validation_rules": {
+        "category": "Capitol Park (Sacramento)",
+        "target_count": 4
+      },
+      "target_geometry": {
+        "type": "MultiPoint",
+        "coordinates": [
+          [
+            -121.49177,
+            38.57621
+          ],
+          [
+            -121.49191,
+            38.57627
+          ],
+          [
+            -121.49037,
+            38.57556
+          ],
+          [
+            -121.49532,
+            38.57677
+          ]
+        ]
+      },
+      "points_reward": 25,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "JFXRQV"
+      }
+    },
+    {
+      "title": "Memorial roll call: link the photos",
+      "description": "Once your memorial photos are on Commons, add image=File:... (the Commons file URL or name) to four memorials in Capitol Park in OSM so the map points at them. iD is easiest for this. Put #FOSS4GNA2026 in the changeset comment (StreetComplete and Every Door let you set it once in their settings) so the hunt can credit your team.",
+      "criteria_type": "osm_tags",
+      "validation_rules": {
+        "required_tags": {
+          "historic": "*",
+          "image": "*"
+        },
+        "target_count": 4,
+        "require_hashtag": true
+      },
+      "target_geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.4965,
+              38.5745
+            ],
+            [
+              -121.4885,
+              38.5745
+            ],
+            [
+              -121.4885,
+              38.578
+            ],
+            [
+              -121.4965,
+              38.578
+            ],
+            [
+              -121.4965,
+              38.5745
+            ]
+          ]
+        ]
+      },
+      "points_reward": 25,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "9XXHJW"
+      }
+    },
+    {
+      "title": "Capitol check-in",
+      "description": "Walk to the west steps of the California State Capitol, five blocks from the venue, with location sharing on. Your check-in counts automatically when you arrive.",
+      "criteria_type": "location_checkin",
+      "validation_rules": {
+        "radius_m": 60,
+        "min_minutes": 0
+      },
+      "target_geometry": {
+        "type": "Point",
+        "coordinates": [
+          -121.4936,
+          38.57664
+        ]
+      },
+      "points_reward": 10,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "GXG78A"
+      }
+    },
+    {
+      "title": "Night Out hours",
+      "description": "After your Night Out dinner, add or correct opening_hours on the restaurant your group ate at, using StreetComplete, Every Door or iD. Put #FOSS4GNA2026 in the changeset comment (StreetComplete and Every Door let you set it once in their settings) so the hunt can credit your team.",
+      "criteria_type": "osm_tags",
+      "validation_rules": {
+        "required_tags": {
+          "amenity": "restaurant",
+          "opening_hours": "*"
+        },
+        "target_count": 1,
+        "require_hashtag": true
+      },
+      "target_geometry": null,
+      "points_reward": 15,
+      "is_active": true,
+      "window_start": "2026-11-03T18:00:00-08:00",
+      "window_end": "2026-11-04T18:00:00-08:00",
+      "inspired_by": {
+        "title": "Night Out: farm-to-fork dinners",
+        "speakers": [],
+        "start": "2026-11-03T18:00:00-08:00",
+        "room": "Downtown Sacramento restaurants",
+        "track": "Conference Events",
+        "url": "https://www.foss4gna.org/conference-events"
+      }
+    },
+    {
+      "title": "Alkali Flat, then and now",
+      "description": "Add one Alkali Flat building to OpenHistoricalMap with its start_date (and end_date if it is gone), using the OHM iD editor at openhistoricalmap.org/edit. Old Sanborn maps and the historic district records are good sources. Put #FOSS4GNA2026 in the changeset comment.",
+      "criteria_type": "ohm_feature",
+      "validation_rules": {
+        "required_tags": {
+          "start_date": "*"
+        },
+        "target_count": 1
+      },
+      "target_geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.4965,
+              38.5825
+            ],
+            [
+              -121.4875,
+              38.5825
+            ],
+            [
+              -121.4875,
+              38.5885
+            ],
+            [
+              -121.4965,
+              38.5885
+            ],
+            [
+              -121.4965,
+              38.5825
+            ]
+          ]
+        ]
+      },
+      "points_reward": 35,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "78PVFZ"
+      }
+    },
+    {
+      "title": "Public Market, 1923-1974",
+      "description": "There is no Wikidata item for the Sacramento Public Market. Create one with instance of (P31), coordinates (P625), architect (P84), inception (P571) and dissolved (P576), then link it from the hotel item Q111393295. Put #FOSS4GNA2026 in the edit summary so the hunt can credit your team.",
+      "criteria_type": "wikidata_entry",
+      "validation_rules": {
+        "target_count": 1
+      },
+      "target_geometry": {
+        "type": "Point",
+        "coordinates": [
+          -121.48993,
+          38.57902
+        ]
+      },
+      "points_reward": 50,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "KREKDB"
+      }
+    },
+    {
+      "title": "Stop and tag",
+      "description": "Pick three SacRT bus or light rail stops on the 12th St / K St corridor, add shelter and bench from what you see, and gtfs:stop_id from the SacRT GTFS feed published via Cal-ITP. Every Door shows stop details nicely. Put #FOSS4GNA2026 in the changeset comment (StreetComplete and Every Door let you set it once in their settings) so the hunt can credit your team.",
+      "criteria_type": "osm_tags",
+      "validation_rules": {
+        "required_tags": {
+          "public_transport": "platform",
+          "gtfs:stop_id": "*"
+        },
+        "target_count": 3,
+        "require_hashtag": true
+      },
+      "target_geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.4935,
+              38.5775
+            ],
+            [
+              -121.489,
+              38.5775
+            ],
+            [
+              -121.489,
+              38.583
+            ],
+            [
+              -121.4935,
+              38.583
+            ],
+            [
+              -121.4935,
+              38.5775
+            ]
+          ]
+        ]
+      },
+      "points_reward": 35,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "7CDXXK"
+      }
+    },
+    {
+      "title": "Ship a patch",
+      "description": "Open a pull request or a substantive issue on any OSGeo-family project on GitHub (GDAL, QGIS, GRASS, PostGIS, MapLibre, OSM, OHM and friends). Put #FOSS4GNA2026 in the PR or issue body, and add your GitHub username to your team profile so we can credit you.",
+      "criteria_type": "oss_contribution",
+      "validation_rules": {
+        "kinds": [
+          "pr",
+          "issue"
+        ],
+        "allowed_owners": [
+          "OSGeo",
+          "qgis",
+          "geoserver",
+          "geotools",
+          "OSGeo-GRASS",
+          "PDAL",
+          "libgeos",
+          "OSGeo-pygeoapi",
+          "maplibre",
+          "openstreetmap",
+          "OpenHistoricalMap",
+          "Overture",
+          "postgis",
+          "duckdb",
+          "apache"
+        ],
+        "target_count": 1
+      },
+      "target_geometry": null,
+      "points_reward": 50,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "VWRMCB"
+      }
+    },
+    {
+      "title": "Old Sac check-in: Pony Express",
+      "description": "Walk down to Old Sacramento (about 1.2 km) and stand at the Pony Express Monument with location sharing on. Your check-in counts automatically when you arrive.",
+      "criteria_type": "location_checkin",
+      "validation_rules": {
+        "radius_m": 60,
+        "min_minutes": 0
+      },
+      "target_geometry": {
+        "type": "Point",
+        "coordinates": [
+          -121.50393,
+          38.58325
+        ]
+      },
+      "points_reward": 10,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "ETLHYT"
+      }
+    },
+    {
+      "title": "Old Sac: photograph the Judah Monument",
+      "description": "While you are in Old Sacramento, photograph the Theodore Judah Monument and upload it with the Commons app. Include #FOSS4GNA2026 in the upload description or summary so the hunt can credit your team.",
+      "criteria_type": "wikimedia_commons",
+      "validation_rules": {
+        "target_count": 1
+      },
+      "target_geometry": {
+        "type": "Point",
+        "coordinates": [
+          -121.50494,
+          38.58091
+        ]
+      },
+      "points_reward": 15,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "EFDSUX"
+      }
+    },
+    {
+      "title": "Street view, open",
+      "description": "(Stretch, not live yet.) Capture a street-level photo sequence along K Street between 10th and 13th with the Panoramax app and upload it with #FOSS4GNA2026 in the description.",
+      "criteria_type": "street_imagery",
+      "validation_rules": {
+        "target_count": 1
+      },
+      "target_geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.4945,
+              38.5795
+            ],
+            [
+              -121.4885,
+              38.5795
+            ],
+            [
+              -121.4885,
+              38.5808
+            ],
+            [
+              -121.4945,
+              38.5808
+            ],
+            [
+              -121.4945,
+              38.5795
+            ]
+          ]
+        ]
+      },
+      "points_reward": 30,
+      "is_active": false,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "JM7QT9"
+      }
+    },
+    {
+      "title": "Closing plenary check-in",
+      "description": "Be at the venue for the closing plenary on Wednesday afternoon with location sharing on. Your check-in counts automatically.",
+      "criteria_type": "location_checkin",
+      "validation_rules": {
+        "radius_m": 60,
+        "min_minutes": 0
+      },
+      "target_geometry": {
+        "type": "Point",
+        "coordinates": [
+          -121.48993,
+          38.57902
+        ]
+      },
+      "points_reward": 10,
+      "is_active": true,
+      "window_start": "2026-11-04T16:00:00-08:00",
+      "window_end": "2026-11-04T17:00:00-08:00",
+      "inspired_by": {
+        "title": "Closing plenary",
+        "speakers": [],
+        "start": "2026-11-04T16:00:00-08:00",
+        "room": "Sheraton Grand Sacramento",
+        "track": "Conference Events",
+        "url": "https://www.foss4gna.org/conference-events"
+      }
+    }
+  ],
+  "teams": [
+    {
+      "name": "Organisers (demo)"
+    }
+  ]
+}
