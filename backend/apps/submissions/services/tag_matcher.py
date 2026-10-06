@@ -1,57 +1,82 @@
 """
-Tag Comparison & Quest Criteria Matching Engine.
+Hashtag matching and contributor-to-team attribution shared by the harvesters.
 """
 
-from typing import Optional, List, Dict, Any
+import re
+from typing import Any, Mapping, Optional, Union
+
 from apps.events.models import Event
-from apps.quests.models import Quest
-from apps.teams.models import TeamMembership, Team
+from apps.teams.models import Team, TeamMembership
+
+# Which TeamMembership username field identifies a contributor on each platform.
+PLATFORM_USERNAME_FIELDS = {
+    'osm': 'osm_username',
+    'osm_notes': 'osm_username',
+    'ohm': 'osm_username',
+    'commons': 'wikimedia_username',
+    'wikidata': 'wikimedia_username',
+    'github': 'github_username',
+}
 
 
-def match_submission_to_quest(event: Event, platform: str, diff_payload: Dict[str, Any]) -> Optional[Quest]:
+def _normalize_hashtag(hashtag: str) -> str:
+    return (hashtag or '').strip().lstrip('#').lower()
+
+
+def _text_has_hashtag(text: str, tag: str) -> bool:
+    """`#tag` as a whole token, case-insensitive: '#FOSS4GNA2026' does not match '#FOSS4GNA2026hunt'."""
+    if not text or not tag:
+        return False
+    pattern = r'(?<![\w#])#' + re.escape(tag) + r'(?!\w)'
+    return re.search(pattern, text, flags=re.IGNORECASE) is not None
+
+
+def hashtag_matches(text_or_tags: Union[str, Mapping[str, Any], None], hashtag: str) -> bool:
     """
-    Evaluates a submission's diff against the event's active quests and returns the matching Quest (if any).
+    Whether a contribution carries the event hashtag.
+
+    - A string (edit summary, note comment, PR body) matches when it contains `#tag` as a token.
+    - A mapping of OSM changeset tags matches when the `hashtags` tag (semicolon-separated, as
+      written by iD, StreetComplete and others; the leading `#` is optional there) lists the tag,
+      or when the `comment` tag contains `#tag`.
     """
-    active_quests = Quest.objects.filter(event=event, is_active=True)
+    tag = _normalize_hashtag(hashtag)
+    if not tag or not text_or_tags:
+        return False
 
-    if platform == 'osm':
-        osm_quests = active_quests.filter(criteria_type='osm_tags')
-        modified_tags_list = diff_payload.get('modified_tags_list', [])
+    if isinstance(text_or_tags, Mapping):
+        listed = str(text_or_tags.get('hashtags', '') or '')
+        for entry in listed.split(';'):
+            if entry.strip().lstrip('#').lower() == tag:
+                return True
+        return _text_has_hashtag(str(text_or_tags.get('comment', '') or ''), tag)
 
-        for quest in osm_quests:
-            for tags in modified_tags_list:
-                if quest.matches_osm_tags(tags):
-                    return quest
-
-    elif platform == 'commons':
-        commons_quests = active_quests.filter(criteria_type='wikimedia_commons')
-        if commons_quests.exists():
-            return commons_quests.first()
-
-    elif platform == 'wikidata':
-        wikidata_quests = active_quests.filter(criteria_type='wikidata_entry')
-        if wikidata_quests.exists():
-            return wikidata_quests.first()
-
-    return None
+    return _text_has_hashtag(str(text_or_tags), tag)
 
 
-def match_author_to_team(event: Event, author_username: str) -> Optional[Team]:
+def match_author_to_team(event: Event, author_username: str, platform: Optional[str] = None) -> Optional[Team]:
     """
-    Looks up whether the author has joined a team in this event.
+    Finds the team in this event that the contributor belongs to.
+
+    The platform-specific username a member shared when joining (osm_username for OSM, OSM Notes
+    and OpenHistoricalMap; wikimedia_username for Commons and Wikidata; github_username for
+    GitHub) is checked first, then the member's user_identifier and display_name. All
+    comparisons are case-insensitive.
     """
     if not author_username:
         return None
 
-    membership = TeamMembership.objects.filter(
-        team__event=event,
-        user_identifier__iexact=author_username
-    ).select_related('team').first()
+    memberships = TeamMembership.objects.filter(team__event=event).select_related('team')
 
-    if not membership:
-        membership = TeamMembership.objects.filter(
-            team__event=event,
-            display_name__iexact=author_username
-        ).select_related('team').first()
+    candidates = []
+    username_field = PLATFORM_USERNAME_FIELDS.get(platform or '')
+    if username_field:
+        candidates.append({f'{username_field}__iexact': author_username})
+    candidates.append({'user_identifier__iexact': author_username})
+    candidates.append({'display_name__iexact': author_username})
 
-    return membership.team if membership else None
+    for lookup in candidates:
+        membership = memberships.filter(**lookup).order_by('joined_at', 'id').first()
+        if membership:
+            return membership.team
+    return None
