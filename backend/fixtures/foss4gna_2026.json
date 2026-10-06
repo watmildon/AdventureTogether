@@ -693,6 +693,38 @@
       }
     },
     {
+      "title": "Stamped in Sacramento",
+      "description": "Find a contractor's date stamp pressed into the sidewalk (the contractor's name and the year the concrete was poured) and photograph it. Upload it with the Commons app (or commons.wikimedia.org/wiki/Special:UploadWizard), put #FOSS4GNA2026 and the stamp's year in the description, and add the category \"Sidewalk contractor stamps in Sacramento, California\". Your first stamp is worth 10 points, every distinct decade your team finds adds 5, and the team holding the oldest stamp when the hunt ends gets a 25-point bonus.",
+      "criteria_type": "wikimedia_commons",
+      "validation_rules": {
+        "target_count": 1,
+        "category": "Sidewalk contractor stamps in Sacramento, California",
+        "scoring": {
+          "value": {
+            "source": "description",
+            "pattern": "\\b((?:18|19|20)\\d{2})\\b",
+            "kind": "year"
+          },
+          "per_bucket": {
+            "size": 10,
+            "points": 5
+          },
+          "extreme_bonus": {
+            "direction": "min",
+            "points": 25
+          }
+        }
+      },
+      "target_geometry": null,
+      "points_reward": 10,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "KREKDB"
+      }
+    },
+    {
       "title": "Street view, open",
       "description": "(Stretch, not live yet.) Capture a street-level photo sequence along K Street between 10th and 13th with the Panoramax app and upload it with #FOSS4GNA2026 in the description.",
       "criteria_type": "street_imagery",

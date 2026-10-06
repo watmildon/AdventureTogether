@@ -10,6 +10,8 @@ import {
   validateRuleForm,
   rulesToForm,
   unmodelledRules,
+  patternForKind,
+  DEFAULT_SCORING_PATTERNS,
   type TagRow
 } from '../composables/questRules'
 import { createQuestLayer, questPopupHtml } from '../composables/questLayers'
@@ -313,6 +315,15 @@ const cancelEdit = () => {
   renderExistingQuests()
 }
 
+// Changing the value kind swaps a default pattern for the new kind's; a pattern the host wrote
+// is kept. A whole new form (edit, cancel, type switch) is left as loaded.
+watch(
+  () => [rules.value.scoring, rules.value.scoring.kind] as const,
+  ([scoring, kind], [prevScoring, prevKind]) => {
+    if (scoring === prevScoring && kind !== prevKind) scoring.pattern = patternForKind(scoring.pattern, prevKind, kind)
+  }
+)
+
 // While editing, switching the type re-initialises only the rule inputs (back to the quest's own
 // rules when switching back to its original type).
 watch(criteriaType, (type) => {
@@ -595,6 +606,87 @@ onUnmounted(() => {
           <input id="targetCount" v-model.number="rules.targetCount" type="number" min="1" class="form-input" />
         </div>
       </div>
+
+      <details class="criteria-box scoring-section" :open="rules.scoring.enabled">
+        <summary class="form-label">Value scoring <span class="optional">(optional)</span></summary>
+        <p class="field-hint">
+          Extra points for the values teams find, e.g. sidewalk contractor stamps: read the stamp's year from
+          the photo's description, +5 for each distinct decade a team finds, +25 for the team with the oldest stamp.
+          The points reward below is still paid once the target is reached.
+        </p>
+        <label class="checkbox-row">
+          <input id="scoringEnabled" v-model="rules.scoring.enabled" type="checkbox" />
+          Score values found in submissions
+        </label>
+
+        <template v-if="rules.scoring.enabled">
+          <div class="form-group">
+            <label class="form-label" for="scoringSource">Read the value from</label>
+            <select id="scoringSource" v-model="rules.scoring.source" class="form-select">
+              <option value="description">Description text (Commons description, caption or title)</option>
+              <option value="tag">An OSM / OHM tag on each element</option>
+              <option value="none">Nowhere: hosts enter it when verifying</option>
+            </select>
+          </div>
+          <div v-if="rules.scoring.source === 'tag'" class="form-group">
+            <label class="form-label" for="scoringTag">Tag key</label>
+            <input id="scoringTag" v-model="rules.scoring.tagKey" type="text" class="form-input" placeholder="e.g. start_date" />
+          </div>
+          <template v-if="rules.scoring.source !== 'none'">
+            <div class="form-group">
+              <label class="form-label" for="scoringKind">Value kind</label>
+              <select id="scoringKind" v-model="rules.scoring.kind" class="form-select">
+                <option value="year">Year (1600 to next year)</option>
+                <option value="number">Number</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="scoringPattern">Pattern <span class="optional">(regular expression)</span></label>
+              <input
+                id="scoringPattern"
+                v-model="rules.scoring.pattern"
+                type="text"
+                class="form-input"
+                :placeholder="DEFAULT_SCORING_PATTERNS[rules.scoring.kind]"
+              />
+              <p class="field-hint">The first match that is a valid {{ rules.scoring.kind }} is the value. Hosts can correct it when verifying.</p>
+            </div>
+          </template>
+
+          <label class="checkbox-row">
+            <input id="scoringBucket" v-model="rules.scoring.bucketEnabled" type="checkbox" />
+            Points for each distinct bucket of values a team finds
+          </label>
+          <div v-if="rules.scoring.bucketEnabled" class="scoring-row">
+            <label class="window-label">
+              Bucket size
+              <input id="scoringBucketSize" v-model.number="rules.scoring.bucketSize" type="number" min="1" class="form-input" />
+            </label>
+            <label class="window-label">
+              Points per bucket
+              <input id="scoringBucketPoints" v-model.number="rules.scoring.bucketPoints" type="number" min="0" class="form-input" />
+            </label>
+          </div>
+
+          <label class="checkbox-row">
+            <input id="scoringBonus" v-model="rules.scoring.bonusEnabled" type="checkbox" />
+            Bonus for the team holding the extreme value (ties share it)
+          </label>
+          <div v-if="rules.scoring.bonusEnabled" class="scoring-row">
+            <label class="window-label">
+              Extreme
+              <select id="scoringDirection" v-model="rules.scoring.bonusDirection" class="form-select">
+                <option value="min">{{ rules.scoring.kind === 'year' ? 'Oldest' : 'Lowest' }}</option>
+                <option value="max">{{ rules.scoring.kind === 'year' ? 'Newest' : 'Highest' }}</option>
+              </select>
+            </label>
+            <label class="window-label">
+              Bonus points
+              <input id="scoringBonusPoints" v-model.number="rules.scoring.bonusPoints" type="number" min="0" class="form-input" />
+            </label>
+          </div>
+        </template>
+      </details>
 
       <div class="form-group">
         <label class="form-label" for="pointsReward">Points Reward</label>
@@ -1026,6 +1118,17 @@ onUnmounted(() => {
 
 .manual-session summary {
   cursor: pointer;
+}
+
+.scoring-section summary {
+  cursor: pointer;
+}
+
+.scoring-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
 }
 
 .manual-session .form-input {

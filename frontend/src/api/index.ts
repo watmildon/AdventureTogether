@@ -109,6 +109,32 @@ export interface QuestProgressData {
   points_reward: number
   completed_at: string | null
   points_awarded: boolean
+  /** Points the team holds from the quest: completion plus value-scoring buckets and bonus. */
+  awarded_points?: number
+  /** Value-scoring buckets found (bucket starts, e.g. [1920, 1950] for decades). */
+  buckets?: number[]
+  /** The team's extreme verified value on a value-scoring quest (null when none yet). */
+  best_value?: number | null
+}
+
+/** One team's row in GET /quests/<id>/standings/. */
+export interface QuestStandingRow {
+  team: number
+  team_name: string
+  awarded_points: number
+  buckets: number[]
+  best_value: number | null
+  verified_count: number
+}
+
+/** GET /quests/<id>/standings/: teams by points held, and who holds the extreme value. */
+export interface QuestStandings {
+  quest: number
+  standings: QuestStandingRow[]
+  /** The extreme value for the quest's extreme_bonus; null without a bonus or a value yet. */
+  extreme_value: number | null
+  /** Team(s) holding extreme_value (ties share the bonus). */
+  extreme_holder_team_ids: number[]
 }
 
 /** Check-in status for one location_checkin quest, as reported with a location ping. */
@@ -213,7 +239,17 @@ export interface SubmissionData {
   element_count?: number
   /** When the contribution happened on the external platform (created_at is harvest time). */
   contributed_at?: string | null
+  /** Value read for a value-scoring quest (e.g. a stamp's year); hosts can correct it. */
+  extracted_value?: number | null
   created_at: string
+}
+
+/** Optional parts of a verify call. */
+export interface VerifyOptions {
+  /** true (the default) verifies, false puts the submission back to pending. */
+  isVerified?: boolean
+  /** A host's correction of a value-scoring quest's value; null clears it. Omit to keep it. */
+  extractedValue?: number | null
 }
 
 /** Reads a JSON error body defensively; returns {} when the body is not JSON. */
@@ -396,6 +432,13 @@ export const api = {
     return res.json()
   },
 
+  /** Every team's standing on one quest, and who holds its extreme value (value-scoring quests). */
+  async getQuestStandings(questId: number | string): Promise<QuestStandings> {
+    const res = await fetch(`${API_BASE}/quests/${questId}/standings/`)
+    if (!res.ok) throw new ApiError('Failed to fetch quest standings', res.status)
+    return res.json()
+  },
+
   // Quests API
   async getQuests(eventId: number | string): Promise<QuestData[]> {
     const res = await fetch(`${API_BASE}/quests/?event=${eventId}`)
@@ -498,11 +541,18 @@ export const api = {
     return res.json()
   },
 
-  async verifySubmission(submissionId: number | string, verifiedByUsername: string = 'Host'): Promise<SubmissionData> {
+  async verifySubmission(
+    submissionId: number | string,
+    verifiedByUsername: string = 'Host',
+    options: VerifyOptions = {}
+  ): Promise<SubmissionData> {
+    const body: Record<string, any> = { verified_by_username: verifiedByUsername }
+    if (options.isVerified !== undefined) body.is_verified = options.isVerified
+    if ('extractedValue' in options) body.extracted_value = options.extractedValue ?? null
     const res = await fetch(`${API_BASE}/submissions/${submissionId}/verify/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ verified_by_username: verifiedByUsername })
+      body: JSON.stringify(body)
     })
     if (!res.ok) throw new Error('Failed to verify submission')
     return res.json()

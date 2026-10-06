@@ -12,7 +12,8 @@ vi.mock('../api', async (importOriginal) => {
     ...actual,
     api: {
       getTeamProgress: vi.fn(),
-      getLeaderboard: vi.fn()
+      getLeaderboard: vi.fn(),
+      getQuestStandings: vi.fn()
     }
   }
 })
@@ -130,6 +131,91 @@ describe('QuestPanel with team progress', () => {
     const wrapper = mount(QuestPanel, { props: { quests } })
     await wrapper.findAll('.show-btn')[0].trigger('click')
     expect(wrapper.emitted('show-on-map')?.[0]).toEqual([quests[0]])
+  })
+})
+
+describe('QuestPanel value scoring', () => {
+  const stamps = quest({
+    id: 24,
+    title: 'Stamped in Sacramento',
+    criteria_type: 'wikimedia_commons',
+    target_geometry: null,
+    validation_rules: {
+      target_count: 1,
+      scoring: {
+        value: { source: 'description', kind: 'year' },
+        per_bucket: { size: 10, points: 5 },
+        extreme_bonus: { direction: 'min', points: 25 }
+      }
+    }
+  })
+  const row = (overrides: Partial<QuestProgressData>): QuestProgressData => ({
+    quest: 24, quest_title: 'Stamped in Sacramento', count: 2, target_count: 1, points_reward: 10,
+    completed_at: '2026-11-03T20:00:00Z', points_awarded: true, ...overrides
+  })
+  const standings = (holders: number[], extreme: number) => ({
+    quest: 24,
+    extreme_value: extreme,
+    extreme_holder_team_ids: holders,
+    standings: [
+      { team: 5, team_name: 'Rivals', awarded_points: 40, buckets: [1910], best_value: 1911, verified_count: 1 },
+      { team: 4, team_name: 'Organisers', awarded_points: 45, buckets: [1920, 1950], best_value: 1923, verified_count: 2 }
+    ]
+  })
+
+  it('loads standings for scoring quests through useQuestProgress and shows the bonus holder', async () => {
+    const { api } = await import('../api')
+    ;(api.getTeamProgress as any).mockResolvedValue([row({ awarded_points: 45, buckets: [1950, 1920], best_value: 1923 })])
+    ;(api.getQuestStandings as any).mockResolvedValue(standings([4], 1923))
+
+    const { progressByQuest, standingsByQuest, refresh } = useQuestProgress(2, ref(4), ref([24]))
+    await refresh()
+    expect(api.getQuestStandings).toHaveBeenCalledWith(24)
+
+    const wrapper = mount(QuestPanel, {
+      props: { quests: [stamps], progressByQuest: progressByQuest.value, standingsByQuest: standingsByQuest.value, hasTeam: true, teamId: 4 }
+    })
+    const card = wrapper.find('.quest-card')
+    expect(card.find('.points').text()).toBe('10 pts, +5 per decade, +25 for the oldest')
+    expect(card.find('.scoring-points').text()).toBe('45 pts held · Your oldest: 1923')
+    expect(card.find('.scoring-buckets').text()).toBe('Decades found: 1920s, 1950s')
+    expect(card.find('.scoring-bonus').text()).toBe('🏆 Your team holds the oldest (1923): +25')
+    expect(card.find('.scoring-bonus').classes()).toContain('held')
+  })
+
+  it('names the team holding the bonus when it is not yours', () => {
+    const wrapper = mount(QuestPanel, {
+      props: {
+        quests: [stamps],
+        progressByQuest: new Map([[24, row({ awarded_points: 20, buckets: [1920, 1950], best_value: 1923 })]]),
+        standingsByQuest: new Map([[24, standings([5], 1911)]]),
+        hasTeam: true,
+        teamId: 4
+      }
+    })
+    expect(wrapper.find('.scoring-points').text()).toContain('20 pts held')
+    expect(wrapper.find('.scoring-bonus').text()).toBe('Oldest so far: 1911, held by Rivals')
+    expect(wrapper.find('.scoring-bonus').classes()).not.toContain('held')
+  })
+
+  it('shows only the standing without a team, and nothing extra on other quests', () => {
+    const wrapper = mount(QuestPanel, {
+      props: { quests: [stamps, quests[0]], standingsByQuest: new Map([[24, standings([5], 1911)]]) }
+    })
+    const cards = wrapper.findAll('.quest-card')
+    expect(cards[0].find('.scoring-points').exists()).toBe(false)
+    expect(cards[0].find('.scoring-bonus').text()).toBe('Oldest so far: 1911, held by Rivals')
+    expect(cards[1].find('.scoring').exists()).toBe(false)
+    expect(cards[1].find('.points').text()).toBe('40 pts')
+  })
+
+  it('does not fetch standings when no quest scores values', async () => {
+    const { api } = await import('../api')
+    ;(api.getQuestStandings as any).mockClear()
+    const { refresh, standingsByQuest } = useQuestProgress(2, ref(4))
+    await refresh()
+    expect(api.getQuestStandings).not.toHaveBeenCalled()
+    expect(standingsByQuest.value.size).toBe(0)
   })
 })
 

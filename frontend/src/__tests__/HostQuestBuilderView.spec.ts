@@ -188,6 +188,52 @@ describe('HostQuestBuilderView', () => {
     expect(api.createQuest.mock.calls[0][0]).toMatchObject({ is_active: false, validation_rules: { target_count: 1 } })
   })
 
+  it('composes a value-scoring block (the sidewalk stamp quest)', async () => {
+    const wrapper = await mountBuilder()
+    await wrapper.find('#questTitle').setValue('Stamped in Sacramento')
+    await wrapper.find('#questDesc').setValue('Photograph sidewalk contractor stamps.')
+    await wrapper.find('#criteriaType').setValue('wikimedia_commons')
+    await wrapper.find('#wikiCategory').setValue('Sidewalk contractor stamps in Sacramento, California')
+
+    expect(wrapper.find('.scoring-section summary').text()).toContain('Value scoring')
+    expect(wrapper.find('.scoring-section').text()).toContain('+5 for each distinct decade')
+    expect(wrapper.find('#scoringSource').exists()).toBe(false)
+    await wrapper.find('#scoringEnabled').setValue(true)
+
+    // A default pattern follows the kind
+    const pattern = () => (wrapper.find('#scoringPattern').element as HTMLInputElement).value
+    const yearDefault = pattern()
+    await wrapper.find('#scoringKind').setValue('number')
+    expect(pattern()).toBe('-?\\d+(?:\\.\\d+)?')
+    await wrapper.find('#scoringKind').setValue('year')
+    expect(pattern()).toBe(yearDefault)
+    await wrapper.find('#scoringPattern').setValue('\\b((?:18|19|20)\\d{2})\\b')
+
+    await wrapper.find('.btn-primary.btn-block').trigger('click')
+    await flushPromises()
+    expect(api.createQuest.mock.calls[0][0].validation_rules).toEqual({
+      category: 'Sidewalk contractor stamps in Sacramento, California',
+      target_count: 1,
+      scoring: {
+        value: { source: 'description', pattern: '\\b((?:18|19|20)\\d{2})\\b', kind: 'year' },
+        per_bucket: { size: 10, points: 5 },
+        extreme_bonus: { direction: 'min', points: 25 }
+      }
+    })
+  })
+
+  it('asks for a tag key when value scoring reads a tag', async () => {
+    const wrapper = await mountBuilder()
+    await wrapper.find('#questTitle').setValue('Dated buildings')
+    await wrapper.find('#questDesc').setValue('Add start_date.')
+    await wrapper.find('#scoringEnabled').setValue(true)
+    await wrapper.find('#scoringSource').setValue('tag')
+    await wrapper.find('#scoringTag').setValue('')
+    await wrapper.find('.btn-primary.btn-block').trigger('click')
+    expect(wrapper.text()).toContain('Value scoring: enter the OSM tag to read')
+    expect(api.createQuest).not.toHaveBeenCalled()
+  })
+
   it('explains a missing schedule and accepts a hand-entered session', async () => {
     const { ApiError } = await import('../api')
     api.getSessions.mockRejectedValue(new ApiError('This event has no schedule_url configured.', 400))
@@ -374,6 +420,21 @@ describe('HostQuestBuilderView', () => {
       expect(changes.criteria_type).toBe('osm_notes')
       expect(changes.validation_rules).toEqual({ target_count: 1 })
       expect(changes.target_geometry).toEqual({ type: 'Point', coordinates: [-121.49, 38.575] })
+    })
+
+    it('loads value scoring and drops it when switched off', async () => {
+      const scoring = { value: { source: 'description', kind: 'year' }, extreme_bonus: { direction: 'min', points: 25 } }
+      api.getQuests.mockResolvedValue([{ ...structuredClone(venue), validation_rules: { ...venue.validation_rules, scoring } }])
+      const wrapper = await mountBuilder()
+      await editButton(wrapper, 'Give the venue a face').trigger('click')
+      expect((wrapper.find('#scoringEnabled').element as HTMLInputElement).checked).toBe(true)
+      expect((wrapper.find('#scoringBucket').element as HTMLInputElement).checked).toBe(false)
+      expect((wrapper.find('#scoringBonusPoints').element as HTMLInputElement).value).toBe('25')
+
+      await wrapper.find('#scoringEnabled').setValue(false)
+      await wrapper.find('.save-btn').trigger('click')
+      await flushPromises()
+      expect(api.updateQuest.mock.calls[0][1].validation_rules).toEqual({ category: 'Sacramento', target_count: 2 })
     })
 
     it('cancel restores the empty create form', async () => {

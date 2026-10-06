@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, type SubmissionData, type EventData, type QuestProgressData } from '../api'
 import { PLATFORMS, platformInfo } from '../composables/useQuestTypes'
+import { questScoring, formatValue, type ValueKind } from '../composables/valueScoring'
 
 const route = useRoute()
 const eventId = route.params.id as string
@@ -25,6 +26,69 @@ const platformOptions = Object.entries(PLATFORMS).map(([value, { label }]) => ({
 const progressTeam = ref<{ id: number; name: string } | null>(null)
 const teamProgress = ref<QuestProgressData[]>([])
 const progressLoading = ref(false)
+
+// Value-scoring quests (validation_rules.scoring): quest id -> value kind, for the value cell
+const scoringKinds = ref(new Map<number, ValueKind>())
+// Inline edit of one submission's extracted value
+const editingValueId = ref<number | null>(null)
+const valueDraft = ref('')
+
+const loadScoringQuests = async () => {
+  try {
+    const quests = await api.getQuests(eventId)
+    const kinds = new Map<number, ValueKind>()
+    quests.forEach((quest) => {
+      const scoring = questScoring(quest)
+      if (scoring) kinds.set(quest.id, scoring.kind)
+    })
+    scoringKinds.value = kinds
+  } catch {
+    // Without the quests, values still show where submissions have one
+  }
+}
+
+/** Whether a submission gets the value cell: its quest scores values, or it already has one. */
+const showsValue = (sub: SubmissionData) =>
+  (sub.quest !== null && scoringKinds.value.has(sub.quest)) || (sub.extracted_value ?? null) !== null
+
+const valueText = (sub: SubmissionData) =>
+  formatValue(sub.extracted_value ?? null, (sub.quest !== null && scoringKinds.value.get(sub.quest)) || 'number') || 'none'
+
+const startValueEdit = (sub: SubmissionData) => {
+  editingValueId.value = sub.id
+  valueDraft.value = sub.extracted_value == null ? '' : String(sub.extracted_value)
+}
+
+/** Saves a host's correction through the verify endpoint, keeping the verification state. */
+const saveValue = async (sub: SubmissionData) => {
+  const text = String(valueDraft.value).trim()
+  const value = text === '' ? null : Number(text)
+  if (value !== null && !Number.isFinite(value)) {
+    error.value = 'Enter a number, or leave the value blank to clear it.'
+    return
+  }
+  try {
+    const updated = await api.verifySubmission(sub.id, 'Host', { isVerified: sub.is_verified, extractedValue: value })
+    sub.extracted_value = updated.extracted_value ?? null
+    sub.is_verified = updated.is_verified
+    sub.verified_by_username = updated.verified_by_username
+    sub.verified_at = updated.verified_at
+    editingValueId.value = null
+    error.value = null
+    if (progressTeam.value && sub.team === progressTeam.value.id) {
+      showTeamProgress(progressTeam.value.id, progressTeam.value.name)
+    }
+    notification.value = `Value for #${sub.external_id} set to ${valueText(sub)}.`
+    setTimeout(() => {
+      notification.value = null
+    }, 3000)
+  } catch {
+    error.value = 'Failed to save the value.'
+  }
+}
+
+/** Points the team holds from a quest; rows from older servers only have the completion flag. */
+const heldPoints = (row: QuestProgressData) => row.awarded_points ?? (row.points_awarded ? row.points_reward : 0)
 
 const loadSubmissions = async () => {
   try {
@@ -50,7 +114,7 @@ const filteredSubmissions = computed(() => {
 const handleVerifyToggle = async (submission: SubmissionData) => {
   const newVerifiedState = !submission.is_verified
   try {
-    const updated = await api.verifySubmission(submission.id, 'Host')
+    const updated = await api.verifySubmission(submission.id, 'Host', { isVerified: newVerifiedState })
     submission.is_verified = updated.is_verified
     submission.verified_by_username = updated.verified_by_username
     submission.verified_at = updated.verified_at
@@ -126,6 +190,7 @@ const showTeamProgress = async (teamId: number, teamName: string) => {
 
 onMounted(() => {
   loadSubmissions()
+  loadScoringQuests()
 })
 </script>
 
@@ -189,7 +254,7 @@ onMounted(() => {
           <span class="progress-quest">{{ row.quest_title }}</span>
           <span class="progress-count">{{ row.count }}/{{ row.target_count }}</span>
           <span class="progress-points">
-            {{ row.points_awarded ? `+${row.points_reward} pts` : `${row.points_reward} pts` }}
+            {{ heldPoints(row) > 0 ? `+${heldPoints(row)} pts` : `${row.points_reward} pts` }}
           </span>
         </li>
         <li v-if="teamProgress.length === 0" class="text-muted">No quests for this event.</li>
@@ -236,6 +301,25 @@ onMounted(() => {
             <td>
               <span v-if="sub.quest_title" class="badge badge-success">{{ sub.quest_title }}</span>
               <span v-else class="text-muted">Uncategorized</span>
+              <div v-if="showsValue(sub)" class="value-cell">
+                <template v-if="editingValueId === sub.id">
+                  <input
+                    v-model="valueDraft"
+                    type="text"
+                    inputmode="decimal"
+                    class="form-input value-input"
+                    aria-label="Extracted value"
+                    @keyup.enter="saveValue(sub)"
+                    @keyup.escape="editingValueId = null"
+                  />
+                  <button type="button" class="value-btn value-save" @click="saveValue(sub)">Save</button>
+                  <button type="button" class="value-btn" @click="editingValueId = null">Cancel</button>
+                </template>
+                <template v-else>
+                  Value: <strong class="value-text">{{ valueText(sub) }}</strong>
+                  <button type="button" class="value-btn value-edit" @click="startValueEdit(sub)">edit</button>
+                </template>
+              </div>
             </td>
             <td>
               <template v-if="sub.team_name && sub.team">
@@ -407,6 +491,35 @@ onMounted(() => {
 }
 
 .link-btn:hover {
+  text-decoration: underline;
+}
+
+.value-cell {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.value-input {
+  width: 6rem;
+  padding: 2px var(--space-1);
+  font-size: var(--font-size-xs);
+}
+
+.value-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-primary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.value-btn:hover {
   text-decoration: underline;
 }
 

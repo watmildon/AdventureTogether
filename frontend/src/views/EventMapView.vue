@@ -9,6 +9,7 @@ import { useQuestProgress, readStoredTeam } from '../composables/useQuestProgres
 import { mergePingCheckins, mergeRecordedCheckins, questMinMinutes, type CheckinStates } from '../composables/checkinState'
 import { createQuestLayer, questPopupHtml, focusQuestLayer } from '../composables/questLayers'
 import { readTools } from '../composables/participantProfile'
+import { questScoring } from '../composables/valueScoring'
 import QuestPanel from '../components/QuestPanel.vue'
 import LeaderboardList from '../components/LeaderboardList.vue'
 
@@ -51,14 +52,17 @@ const { getDeepLinks, launchDeepLink } = useDeepLinks()
 const storedTeam = readStoredTeam(eventId)
 const teamId = ref<number | null>(storedTeam?.id ?? null)
 const pingTeamName = ref<string | null>(null)
+// Value-scoring quests also load their standings (who holds the bonus), refreshed with progress
+const scoringQuestIds = computed(() => quests.value.filter((q) => questScoring(q)).map((q) => q.id))
 const {
   progressByQuest,
+  standingsByQuest,
   leaderboard,
   error: leaderboardError,
   refresh: refreshProgressAndLeaderboard,
   refreshProgress,
   startPolling: startProgressPolling
-} = useQuestProgress(eventId, teamId)
+} = useQuestProgress(eventId, teamId, scoringQuestIds)
 
 const teamName = computed(() =>
   leaderboard.value.find((t) => t.id === teamId.value)?.name ||
@@ -105,11 +109,12 @@ const formatTimeAgo = (dateStr: string) => {
   return `${diffMins} mins ago`
 }
 
-/** "2/5" for popups when the participant has a team, otherwise null. */
+/** "2/5" for popups when the participant has a team (plus "· 45 pts held" on value-scoring quests), otherwise null. */
 const progressTextFor = (quest: QuestData): string | null => {
   if (!teamId.value) return null
   const row = progressByQuest.value.get(quest.id)
-  return `${row?.count ?? 0}/${row?.target_count ?? quest.target_count ?? 1}`
+  const text = `${row?.count ?? 0}/${row?.target_count ?? quest.target_count ?? 1}`
+  return questScoring(quest) ? `${text} · ${row?.awarded_points ?? 0} pts held` : text
 }
 
 const initMap = async () => {
@@ -395,6 +400,8 @@ onUnmounted(() => {
           <QuestPanel
             :quests="visibleQuests"
             :progress-by-quest="progressByQuest"
+            :standings-by-quest="standingsByQuest"
+            :team-id="teamId"
             :has-team="Boolean(teamId)"
             :checkins="checkins"
             :tools="participantTools"

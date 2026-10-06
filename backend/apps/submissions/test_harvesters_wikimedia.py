@@ -66,7 +66,7 @@ def commons_router(url, params=None, **kwargs):
         assert params['srnamespace'] == '6'
         return ok(COMMONS_SEARCH)
     assert params['prop'] == 'imageinfo|categories'
-    assert params['iiprop'] == 'user|timestamp|url'
+    assert params['iiprop'] == 'user|timestamp|url|extmetadata'
     return ok(COMMONS_INFO_2 if 'clcontinue' in params else COMMONS_INFO_1)
 
 

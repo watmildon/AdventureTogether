@@ -175,11 +175,14 @@ def upsert_submission(ctx: HarvestContext, *, platform: str, quest: Quest, exter
 
     An existing submission is updated when more elements now match (element_count grows) or when
     its author can now be credited to a team (e.g. the member added their username after
-    editing). Verified submissions have their team's quest progress recomputed so counted quests
-    advance. Returns 'created', 'updated', or 'unchanged'. In a dry run nothing is written and
-    the would-be submission is recorded on the context instead.
+    editing). For a value-scoring quest the value is (re)read from the payload on every run, so
+    an existing submission is also updated when its value changes (e.g. the scoring rule was
+    added later), unless a host has set the value. Verified submissions have their quest
+    progress recomputed so counted quests advance. Returns 'created', 'updated', or 'unchanged'.
+    In a dry run nothing is written and the would-be submission is recorded on the context instead.
     """
-    from .progress import recompute_quest_progress
+    from .progress import recompute_after_change
+    from .value_extraction import apply_extraction
 
     stats = ctx.platform(platform)
     stats['harvested'] += 1
@@ -197,18 +200,7 @@ def upsert_submission(ctx: HarvestContext, *, platform: str, quest: Quest, exter
         stats['created'] += 1
         if team:
             stats['matched'] += 1
-        if ctx.dry_run:
-            ctx.would_submit.append({
-                'platform': platform,
-                'external_id': external_id,
-                'author': author_username,
-                'element_count': element_count,
-                'quest': quest.id,
-                'team': team.id if team else None,
-                'action': 'create',
-            })
-            return 'created'
-        Submission.objects.create(
+        submission = Submission(
             event=ctx.event,
             quest=quest,
             team=team,
@@ -220,6 +212,21 @@ def upsert_submission(ctx: HarvestContext, *, platform: str, quest: Quest, exter
             element_count=element_count,
             diff_payload=diff_payload,
         )
+        apply_extraction(quest, submission)
+        if ctx.dry_run:
+            ctx.would_submit.append({
+                'platform': platform,
+                'external_id': external_id,
+                'author': author_username,
+                'element_count': element_count,
+                'quest': quest.id,
+                'team': team.id if team else None,
+                'action': 'create',
+            })
+            if submission.extracted_value is not None:
+                ctx.would_submit[-1]['extracted_value'] = submission.extracted_value
+            return 'created'
+        submission.save()
         return 'created'
 
     if existing.event_id != ctx.event.id:
@@ -229,11 +236,26 @@ def upsert_submission(ctx: HarvestContext, *, platform: str, quest: Quest, exter
     changed_fields = []
     if element_count > existing.element_count:
         existing.element_count = element_count
-        existing.diff_payload = diff_payload
+        # A value a host has set survives the refreshed payload.
+        stored = existing.diff_payload or {}
+        kept = ({k: stored[k] for k in ('extracted_values', 'value_overridden_by') if k in stored}
+                if stored.get('value_overridden_by') else {})
+        existing.diff_payload = {**diff_payload, **kept}
         changed_fields += ['element_count', 'diff_payload']
     if existing.team_id is None and team is not None:
         existing.team = team
         changed_fields.append('team')
+    if 'diff_payload' not in changed_fields:
+        # Read the value from the stored payload topped up with keys it lacks (e.g. a Commons
+        # description harvested after the submission was first stored).
+        stored_payload = existing.diff_payload
+        existing.diff_payload = {**diff_payload, **(stored_payload or {})}
+        if apply_extraction(quest, existing):
+            changed_fields += ['diff_payload', 'extracted_value']
+        else:
+            existing.diff_payload = stored_payload
+    elif apply_extraction(quest, existing):
+        changed_fields.append('extracted_value')
 
     if not changed_fields:
         return 'unchanged'
@@ -251,9 +273,11 @@ def upsert_submission(ctx: HarvestContext, *, platform: str, quest: Quest, exter
             'team': existing.team_id,
             'action': 'update',
         })
+        if existing.extracted_value is not None:
+            ctx.would_submit[-1]['extracted_value'] = existing.extracted_value
         return 'updated'
 
     existing.save(update_fields=changed_fields)
     if existing.is_verified and existing.team_id and existing.quest_id:
-        recompute_quest_progress(existing.team, existing.quest)
+        recompute_after_change(existing.team, existing.quest)
     return 'updated'

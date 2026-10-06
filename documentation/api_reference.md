@@ -156,10 +156,30 @@ The team's progress on every quest of its event, ordered by quest title. Quests 
     "target_count": 1,
     "points_reward": 10,
     "completed_at": "2026-11-03T02:14:09Z",
-    "points_awarded": true
+    "points_awarded": true,
+    "awarded_points": 10,
+    "buckets": [],
+    "best_value": null
+  },
+  {
+    "quest": 24,
+    "quest_title": "Stamped in Sacramento",
+    "count": 2,
+    "target_count": 1,
+    "points_reward": 10,
+    "completed_at": "2026-11-03T20:41:00Z",
+    "points_awarded": true,
+    "awarded_points": 45,
+    "buckets": [1920, 1950],
+    "best_value": 1923.0
   }
 ]
 ```
+
+- `points_awarded`: whether the completion points (`points_reward`) are included in the team score.
+- `awarded_points`: every point the team currently holds from the quest. That is the completion points plus, on a value-scoring quest (`validation_rules.scoring`, see `documentation/quest_types.md`), the per-bucket points and the extreme bonus. The example above holds 10 + 5 × 2 decades + 25 for the oldest stamp.
+- `buckets`: the distinct bucket starts among the team's verified values, e.g. `[1920, 1950]` for decades. Empty for quests without `per_bucket`.
+- `best_value`: the team's extreme verified value (min or max per the rule), or `null`.
 
 ---
 
@@ -209,9 +229,28 @@ Creates a new quest. Rejects target geometries outside the event's bounding peri
 - `inspired_by` (optional object, default `{}`): the conference session behind the quest, in the shape returned by `GET /api/events/<id>/sessions/` (minus `type`). Must be a JSON object.
 - `window_start` / `window_end` (optional, nullable): a quest-specific time window inside the event window, e.g. a Monday-evening-only check-in. `window_end` must not precede `window_start`.
 - `target_count` (read-only in responses): number of verified contributions needed to complete the quest, taken from `validation_rules.target_count` (minimum and default 1).
+- `validation_rules.scoring` (optional, any type): value scoring, i.e. points per distinct bucket of values and a bonus for the extreme value. A malformed block is rejected with 400: bad `value.source`, `kind` or regex `pattern`, a non-positive `per_bucket.size`, or a bad `extreme_bonus.direction`. See `documentation/quest_types.md`.
+
+### `GET /api/quests/<id>/standings/`
+Every team's standing on one quest, most `awarded_points` first. Teams without verified submissions or points are left out. On a quest with `scoring.extreme_bonus`, `extreme_value` is the current extreme among all verified values and `extreme_holder_team_ids` lists the team(s) holding it. Ties share the bonus. Otherwise they are `null` and `[]`. The participant quest panel uses this to show who holds the bonus.
+
+**Response (200 OK)**:
+```json
+{
+  "quest": 24,
+  "standings": [
+    {"team": 9, "team_name": "Rivals", "awarded_points": 40, "buckets": [1910], "best_value": 1911.0, "verified_count": 1},
+    {"team": 4, "team_name": "Organisers", "awarded_points": 20, "buckets": [1920, 1950], "best_value": 1923.0, "verified_count": 2}
+  ],
+  "extreme_value": 1911.0,
+  "extreme_holder_team_ids": [9]
+}
+```
+
+`verified_count` is the number of the team's verified submissions on the quest.
 
 ### `DELETE /api/quests/<id>/`
-Deletes the quest and its team progress rows. Teams that had been awarded the quest's points lose them again (score floored at 0); the quest's submissions are kept with `quest = null`.
+Deletes the quest and its team progress rows. Every team loses the points it held from the quest (`awarded_points`: completion, bucket and bonus points), with the score floored at 0. The quest's submissions are kept with `quest = null`.
 
 ---
 
@@ -249,17 +288,21 @@ Lists submissions harvested from OSM, Wikimedia Commons, or Wikidata.
 `platform` is one of `osm`, `commons`, `wikidata`, `ohm`, `osm_notes`, `checkin`, `github`, `panoramax` (`platform_display` gives the human-readable name). Each submission also carries:
 - `element_count` (default 1): how many distinct contributions it represents toward a counted quest, e.g. 3 cafes given `opening_hours` in one changeset.
 - `contributed_at` (nullable): when the contribution happened on the external platform; `created_at` is when it was harvested.
+- `extracted_value` (nullable float): the value read for a value-scoring quest, e.g. a sidewalk stamp's year. On an element-based submission (OSM/OHM) it is the extreme of the per-element values, which are stored in `diff_payload.extracted_values`. It can be set when creating a submission through the API.
 
 ### `POST /api/submissions/<id>/verify/`
-Host endpoint to verify (or, with `"is_verified": false`, un-verify) a submission. After the change the team's progress on the quest is recomputed: progress `count` is the sum of `element_count` over the team's verified submissions for that quest. The quest's `points_reward` is added to the team score once, when `count` first reaches `target_count`, and removed again (score floored at 0) if revocations take it back below the target. Re-verifying an already verified submission does not award points twice.
+Host endpoint to verify (or, with `"is_verified": false`, un-verify) a submission. After the change the team's progress on the quest is recomputed: progress `count` is the sum of `element_count` over the team's verified submissions for that quest. The quest's `points_reward` is added to the team score once, when `count` first reaches `target_count`, and removed again (score floored at 0) if revocations take it back below the target. Re-verifying an already verified submission does not award points twice. On a value-scoring quest the bucket points and the extreme bonus are settled too. Every team on the quest is re-evaluated when it has an `extreme_bonus`, because the bonus can move from one team to another.
 
 **Payload**:
 ```json
 {
   "is_verified": true,
-  "verified_by_username": "HostMaster"
+  "verified_by_username": "HostMaster",
+  "extracted_value": 1923
 }
 ```
+
+`extracted_value` is optional. When given, it replaces the submission's harvested value with the host's correction (`null` clears it). Later harvests keep it. Leave the key out to keep the current value.
 
 ### `POST /api/submissions/trigger_harvest/`
 Runs a harvest synchronously for the event and returns `{"message", "stats"}`. `stats` holds one `{harvested, created, updated, matched, errors}` entry per platform that ran (`osm`, `ohm`, `osm_notes`, `commons`, `wikidata`, `github`), plus `summary` (totals), `warnings`, `event`, `found` and `dry_run`. Returns 400 if `event` is missing or not an integer, and 404 (with `stats`) if the event does not exist or is inactive. Only the platforms the event's active quests need are contacted. See `documentation/harvesters.md`.

@@ -7,7 +7,12 @@ import {
   splitList,
   rulesToForm,
   unmodelledRules,
-  objectToTags
+  objectToTags,
+  composeScoring,
+  scoringToForm,
+  defaultScoringForm,
+  patternForKind,
+  DEFAULT_SCORING_PATTERNS
 } from '../questRules'
 import type { CriteriaType } from '../../api'
 import { CRITERIA_TYPES } from '../useQuestTypes'
@@ -172,5 +177,83 @@ describe('rulesToForm (inverse of composeValidationRules)', () => {
     expect(unmodelledRules('location_checkin', { radius_m: 5, min_minutes: 0 })).toEqual({})
     // action is modelled for osm_tags, so changing it in the form is not undone on save
     expect(unmodelledRules('osm_tags', { action: 'create', note: 'x' })).toEqual({ note: 'x' })
+  })
+})
+
+describe('value scoring (validation_rules.scoring)', () => {
+  // The seeded "Stamped in Sacramento" quest
+  const stampRules = {
+    category: 'Sidewalk contractor stamps in Sacramento, California',
+    target_count: 1,
+    scoring: {
+      value: { source: 'description', pattern: '\\b((?:18|19|20)\\d{2})\\b', kind: 'year' },
+      per_bucket: { size: 10, points: 5 },
+      extreme_bonus: { direction: 'min', points: 25 }
+    }
+  }
+
+  it('is off by default and adds nothing to any type', () => {
+    for (const type of CRITERIA_TYPES) {
+      expect(composeValidationRules(type, defaultRuleForm(), true)).not.toHaveProperty('scoring')
+    }
+    expect(composeScoring(defaultScoringForm())).toBeNull()
+  })
+
+  it('switched on, the defaults are the sidewalk stamp rule with the default year pattern', () => {
+    const form = { ...defaultRuleForm(), scoring: { ...defaultScoringForm(), enabled: true } }
+    expect(composeValidationRules('wikimedia_commons', form, false)).toEqual({
+      target_count: 1,
+      scoring: {
+        value: { source: 'description', pattern: DEFAULT_SCORING_PATTERNS.year, kind: 'year' },
+        per_bucket: { size: 10, points: 5 },
+        extreme_bonus: { direction: 'min', points: 25 }
+      }
+    })
+  })
+
+  it.each([
+    ['wikimedia_commons', stampRules],
+    // OHM start_date on every element, no pattern (backend default), max with no buckets
+    ['ohm_feature', { required_tags: { start_date: '*' }, target_count: 1,
+      scoring: { value: { source: 'tag:start_date', kind: 'year' }, extreme_bonus: { direction: 'max', points: 10 } } }],
+    // Values entered by hosts only, numbers in buckets of 50
+    ['osm_notes', { target_count: 2, scoring: { per_bucket: { size: 50, points: 2 } } }],
+    ['osm_tags', { required_tags: { amenity: 'bench' }, target_count: 1, require_hashtag: true,
+      scoring: { value: { source: 'tag:capacity', pattern: '\\d+', kind: 'number' }, per_bucket: { size: 5, points: 1 } } }]
+  ] as [CriteriaType, Record<string, any>][])('%s round-trips %j', (type, rules) => {
+    const form = rulesToForm(type, rules)
+    expect(form.scoring.enabled).toBe(true)
+    expect(validateRuleForm(type, form, false)).toBeNull()
+    expect(composeValidationRules(type, form, false)).toEqual(rules)
+  })
+
+  it('scoringToForm reads the parts', () => {
+    const form = scoringToForm({ value: { source: 'tag:start_date', kind: 'number' }, extreme_bonus: { direction: 'max', points: 3 } })
+    expect(form).toMatchObject({ enabled: true, source: 'tag', tagKey: 'start_date', kind: 'number', pattern: '',
+      bucketEnabled: false, bonusEnabled: true, bonusDirection: 'max', bonusPoints: 3 })
+    expect(scoringToForm(undefined).enabled).toBe(false)
+    expect(scoringToForm({ per_bucket: { size: 10, points: 5 } }).source).toBe('none')
+  })
+
+  it('validates the scoring inputs only when switched on', () => {
+    const on = { ...defaultScoringForm(), enabled: true }
+    const form = (scoring: Partial<typeof on>) => ({ ...defaultRuleForm(), scoring: { ...on, ...scoring } })
+    expect(validateRuleForm('wikimedia_commons', form({}), false)).toBeNull()
+    expect(validateRuleForm('ohm_feature', form({ source: 'tag', tagKey: ' ' }), false)).toMatch(/tag/)
+    expect(validateRuleForm('wikimedia_commons', form({ bucketEnabled: false, bonusEnabled: false }), false)).toMatch(/both/)
+    expect(validateRuleForm('wikimedia_commons', form({ bucketSize: 0 }), false)).toMatch(/bucket size/)
+    expect(validateRuleForm('wikimedia_commons', form({ enabled: false, bucketSize: 0 }), false)).toBeNull()
+  })
+
+  it('patternForKind follows the kind unless the host wrote a pattern', () => {
+    expect(patternForKind(DEFAULT_SCORING_PATTERNS.year, 'year', 'number')).toBe(DEFAULT_SCORING_PATTERNS.number)
+    expect(patternForKind('', 'number', 'year')).toBe(DEFAULT_SCORING_PATTERNS.year)
+    expect(patternForKind('stamp (\\d{4})', 'year', 'number')).toBe('stamp (\\d{4})')
+  })
+
+  it('scoring is modelled for every type, so switching it off on edit removes it', () => {
+    for (const type of CRITERIA_TYPES) {
+      expect(unmodelledRules(type, { scoring: { per_bucket: { size: 10, points: 5 } } })).toEqual({})
+    }
   })
 })

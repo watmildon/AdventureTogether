@@ -2,11 +2,15 @@
 Wikimedia Commons harvester (`wikimedia_commons` quests).
 
 Searches the File namespace for the event hashtag, then resolves each hit's uploader, upload
-time, description page, and categories so the upload can be credited and checked against the
-quest's optional category.
+time, description page, categories, and description text (extmetadata ImageDescription and
+ObjectName, HTML stripped) so the upload can be credited, checked against the quest's optional
+category, and read by value-scoring quests (e.g. the year on a sidewalk stamp).
 """
 
+import html
 from typing import Any, Dict, List
+
+from django.utils.html import strip_tags
 
 from django.conf import settings
 
@@ -60,10 +64,23 @@ def _normalize_category(name: str) -> str:
     return name.replace('_', ' ').strip().lower()
 
 
+def _metadata_text(extmetadata: Dict[str, Any], name: str) -> str:
+    """
+    Plain text of one extmetadata field. Values are HTML, and a dict of language -> HTML when
+    the API returns several languages.
+    """
+    value = ((extmetadata or {}).get(name) or {}).get('value') or ''
+    if isinstance(value, dict):
+        value = ' '.join(str(v) for v in value.values() if v)
+    text = html.unescape(strip_tags(str(value)))
+    return ' '.join(text.split())
+
+
 def fetch_file_details(pageids: List[str]) -> Dict[str, Dict[str, Any]]:
     """
-    pageid -> {title, user, timestamp, descriptionurl, url, categories} via
-    prop=imageinfo|categories, following API continuation for long category lists.
+    pageid -> {title, user, timestamp, descriptionurl, url, categories, description,
+    object_name} via prop=imageinfo|categories, following API continuation for long category
+    lists.
     """
     details: Dict[str, Dict[str, Any]] = {}
     for start in range(0, len(pageids), 50):
@@ -72,7 +89,9 @@ def fetch_file_details(pageids: List[str]) -> Dict[str, Dict[str, Any]]:
             'action': 'query',
             'pageids': '|'.join(batch),
             'prop': 'imageinfo|categories',
-            'iiprop': 'user|timestamp|url',
+            'iiprop': 'user|timestamp|url|extmetadata',
+            'iiextmetadatafilter': 'ImageDescription|ObjectName',
+            'iiextmetadatalanguage': 'en',
             'cllimit': '50',
             'format': 'json',
         }
@@ -85,7 +104,7 @@ def fetch_file_details(pageids: List[str]) -> Dict[str, Dict[str, Any]]:
                 entry = details.setdefault(str(pid), {
                     'title': page.get('title', ''),
                     'user': '', 'timestamp': '', 'descriptionurl': '', 'url': '',
-                    'categories': [],
+                    'categories': [], 'description': '', 'object_name': '',
                 })
                 info = (page.get('imageinfo') or [None])[0]
                 if info and not entry['user']:
@@ -94,6 +113,8 @@ def fetch_file_details(pageids: List[str]) -> Dict[str, Dict[str, Any]]:
                         'timestamp': info.get('timestamp', ''),
                         'descriptionurl': info.get('descriptionurl', ''),
                         'url': info.get('url', ''),
+                        'description': _metadata_text(info.get('extmetadata'), 'ImageDescription'),
+                        'object_name': _metadata_text(info.get('extmetadata'), 'ObjectName'),
                     })
                 for cat in page.get('categories') or []:
                     if cat.get('title') and cat['title'] not in entry['categories']:
@@ -144,5 +165,7 @@ def harvest_commons(ctx: HarvestContext, quests: List[Quest]) -> None:
                     'file_url': info['url'],
                     'categories': info['categories'],
                     'snippet': candidate['snippet'],
+                    'description': info['description'],
+                    'object_name': info['object_name'],
                 },
             )

@@ -148,7 +148,7 @@ The author is the user who closed the note. If the note was closed anonymously, 
 
 ## 4. Wikimedia Commons and Wikidata
 
-**Commons.** A full-text search in the File namespace (`list=search&srnamespace=6&srsearch=#TAG`) finds files whose description mentions the hashtag. The harvester then resolves each hit with `prop=imageinfo|categories&iiprop=user|timestamp|url`. The uploader (`imageinfo.user`) is the author, the upload time must fall in the window, and the file's description page is the submission URL. When a quest sets `category`, the file must be in that category. Each (file, quest) pair is one submission.
+**Commons.** A full-text search in the File namespace (`list=search&srnamespace=6&srsearch=#TAG`) finds files whose description mentions the hashtag. The harvester then resolves each hit with `prop=imageinfo|categories&iiprop=user|timestamp|url|extmetadata` (`iiextmetadatafilter=ImageDescription|ObjectName`, so the file's description and object name land in `diff_payload` as plain text for value-scoring quests). The uploader (`imageinfo.user`) is the author, the upload time must fall in the window, and the file's description page is the submission URL. When a quest sets `category`, the file must be in that category. Each (file, quest) pair is one submission. On a quest with `validation_rules.scoring.value`, every platform's submissions get `extracted_value` read from their payload at harvest time (see `quest_types.md`, Value scoring).
 
 **Wikidata, `wikidata_entry`.** Candidate edits come from two sources:
 

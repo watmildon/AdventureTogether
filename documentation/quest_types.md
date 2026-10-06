@@ -9,6 +9,7 @@ These apply to every type:
 - **`target_geometry`**: a Point, a Polygon, or `null`. `null` means the whole event perimeter (`bounding_polygon`).
 - **`window_start` / `window_end`** (optional): a contribution only counts if it was made inside this window as well as inside the event window.
 - **`validation_rules.target_count`** (default 1): how many contributions a team needs. Progress is the sum of `element_count` over the team's **verified** submissions for the quest. Points are awarded once, when progress reaches the target.
+- **`validation_rules.scoring`** (optional): extra points for the values teams find, such as +5 per decade of sidewalk stamp years and a bonus for the oldest. See [Value scoring](#value-scoring-per-bucket-points-and-extreme-bonus).
 - **`inspired_by`**: the conference session the quest is based on. It has no effect on verification.
 
 ### Usernames
@@ -165,7 +166,7 @@ Credits a team for a file uploaded to Wikimedia Commons during the event whose d
 | `category` | string | none | If set, the file must be in this category. The `Category:` prefix, letter case, and `_` versus space are all ignored. |
 | `target_count` | int | 1 | Files needed. |
 
-**Evidence.** One submission per (file, quest). `diff_payload` holds `pageid`, `title`, `file_url`, `categories`, and the search `snippet`. The upload time (`imageinfo.timestamp`) must be inside the window.
+**Evidence.** One submission per (file, quest). `diff_payload` holds `pageid`, `title`, `file_url`, `categories`, the search `snippet`, and the file's `description` and `object_name` (imageinfo `extmetadata` `ImageDescription` and `ObjectName`, HTML stripped). The upload time (`imageinfo.timestamp`) must be inside the window.
 
 **Credit.** The uploader (`imageinfo.user`), matched against `wikimedia_username`.
 
@@ -313,3 +314,56 @@ Only pings sent while the quest is open count: the quest must be active and insi
 ## `street_imagery`: street-level imagery
 
 *Stretch goal, not implemented.* The plan is to search the Panoramax API for sequences in the quest area during the window and match the author by username. The `panoramax` platform and the `PANORAMAX_API` setting already exist, but no harvester calls them yet.
+
+---
+
+## Value scoring (per-bucket points and extreme bonus)
+
+Any quest type can score the *values* teams find, not just how many contributions they make. The motivating quest: photograph the contractor date stamps pressed into Sacramento's sidewalks and upload them to Commons. Each distinct decade a team finds is worth +5, and the team holding the oldest stamp gets a bonus.
+
+Add a `scoring` object to `validation_rules`:
+
+```json
+"scoring": {
+  "value": {"source": "description", "pattern": "\\b((?:18|19|20)\\d{2})\\b", "kind": "year"},
+  "per_bucket": {"size": 10, "points": 5},
+  "extreme_bonus": {"direction": "min", "points": 25}
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `value.source` | `"description"`: the submission's text, which for Commons is the file's description, object name, title, and search snippet, in that order. Other platforms use `diff_payload` text fields such as a changeset `comment`. `"tag:<key>"`: that tag on every element in `diff_payload.elements` (OSM/OHM), e.g. `tag:start_date`. Leave `value` out if hosts will type the values in themselves when verifying. |
+| `value.pattern` | Regular expression. The value is the first match that is a valid number of the given kind: group 1 when the pattern has a group (falling back to the whole match), otherwise the whole match. Default: `\b((?:16\|17\|18\|19\|20)\d{2})\b` for years, `-?\d+(?:\.\d+)?` for numbers. |
+| `value.kind` | `"year"` (default; only whole numbers from 1600 to next year count, so `1234` and `2099` are ignored) or `"number"`. |
+| `per_bucket.size`, `per_bucket.points` | Each team gets `points` × the number of distinct buckets (`floor(value / size) × size`) across all its verified values. `size` 10 with years means decades. Leave out to turn off. |
+| `extreme_bonus.direction`, `extreme_bonus.points` | The team or teams holding the lowest (`"min"`) or highest (`"max"`) value among all verified submissions on the quest get `points`. Ties share the bonus. Leave out to turn off. |
+
+`points_reward` and `target_count` keep their usual meaning: the completion points are paid once the team reaches the target. So the stamp quest pays 10 for the first stamp, +5 per decade, and +25 for the oldest.
+
+**Extraction.** The harvester reads the value for every submission on a quest with `scoring.value`. It stores the value in `Submission.extracted_value`. An element-based submission (OSM/OHM) has one value per element: they are stored in `diff_payload.extracted_values`, and `extracted_value` is set to the extreme in the bonus direction (min by default). Every per-element value counts toward buckets. A host can correct the value with `POST /api/submissions/<id>/verify/` and `{"extracted_value": 1923}` (or `null` to clear it). A host's value replaces the harvested ones and later harvests leave it alone.
+
+**Scoring.** Each team's `QuestProgress.awarded_points` is its completion points plus bucket points plus any bonus. The team score moves by the change in that number, and a drop never takes the score below 0. The bonus can move between teams: when team B verifies an older stamp than team A's, A loses 25 and B gains 25. So any change on a quest with `extreme_bonus` recomputes every team on that quest. Deleting the quest takes back each team's `awarded_points`. Progress rows also store `buckets` (bucket starts, e.g. `[1920, 1950]`) and `best_value` for display. `GET /api/quests/<id>/standings/` reports who holds the bonus.
+
+Example (seeded as "Stamped in Sacramento"):
+
+```json
+{
+  "title": "Stamped in Sacramento",
+  "description": "Find a contractor's date stamp pressed into the sidewalk and photograph it. Upload it to Commons with #FOSS4GNA2026 and the stamp's year in the description, in the category below. First stamp 10 pts, +5 per distinct decade your team finds, +25 for the oldest stamp at the end.",
+  "criteria_type": "wikimedia_commons",
+  "target_geometry": null,
+  "validation_rules": {
+    "target_count": 1,
+    "category": "Sidewalk contractor stamps in Sacramento, California",
+    "scoring": {
+      "value": {"source": "description", "pattern": "\\b((?:18|19|20)\\d{2})\\b", "kind": "year"},
+      "per_bucket": {"size": 10, "points": 5},
+      "extreme_bonus": {"direction": "min", "points": 25}
+    }
+  },
+  "points_reward": 10
+}
+```
+
+In the quest builder this is the collapsible **Value scoring (optional)** section, available for every type. The participant quest panel shows the points the team holds, the decades it has found, its oldest value, and who holds the bonus. On the verification page, each submission on a scoring quest shows its value with an inline edit.

@@ -45,10 +45,14 @@ class SubmissionViewSet(viewsets.ModelViewSet):
 
         is_verified = serializer.validated_data.get('is_verified', True)
         verified_by = serializer.validated_data.get('verified_by_username', 'Host')
+        extra = {}
+        if 'extracted_value' in serializer.validated_data:
+            extra['extracted_value'] = serializer.validated_data['extracted_value']
 
         # Scoring lives in the progress service so counted quests (target_count > 1)
-        # award points only once the team reaches the target, and revoke idempotently.
-        set_submission_verification(submission, is_verified, verified_by)
+        # award points only once the team reaches the target, value-scoring bonuses move
+        # between teams, and everything revokes idempotently.
+        set_submission_verification(submission, is_verified, verified_by, **extra)
 
         return Response(
             SubmissionSerializer(submission).data,

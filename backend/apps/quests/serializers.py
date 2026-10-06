@@ -42,6 +42,19 @@ class QuestSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('inspired_by must be a JSON object, e.g. {"title": "...", "url": "..."}.')
         return value
 
+    def validate_validation_rules(self, value):
+        """
+        The optional value-scoring block (validation_rules.scoring) must be well formed; other
+        keys are type-specific and checked where they are used.
+        """
+        from apps.submissions.services.value_extraction import validate_scoring
+
+        if isinstance(value, dict):
+            errors = validate_scoring(value.get('scoring'))
+            if errors:
+                raise serializers.ValidationError(errors)
+        return value
+
     def validate(self, attrs):
         """
         Validates that quest target geometry resides within or intersects the event bounding perimeter,

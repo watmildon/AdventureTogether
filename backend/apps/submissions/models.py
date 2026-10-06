@@ -96,6 +96,15 @@ class Submission(models.Model):
         blank=True,
         help_text="When the contribution happened on the external platform (created_at is when it was harvested)."
     )
+    extracted_value = models.FloatField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Value read for a value-scoring quest (validation_rules.scoring), e.g. the year on a "
+            "sidewalk stamp. For element-based submissions this is the extreme of the per-element "
+            "values stored in diff_payload['extracted_values']. Hosts can correct it when verifying."
+        )
+    )
     created_at = models.DateTimeField(
         auto_now_add=True,
         help_text="Timestamp when the submission was harvested."
@@ -116,8 +125,8 @@ class QuestProgress(models.Model):
     A team's running tally toward one quest.
 
     Rows are derived data: services.progress.recompute_quest_progress rebuilds them from
-    verified submissions, and records whether the quest's points have been added to the
-    team score so that awarding and revoking stay idempotent.
+    verified submissions, and records how many of the quest's points are currently included in
+    the team score (awarded_points) so that awarding and revoking stay idempotent.
     """
     team = models.ForeignKey(
         'teams.Team',
@@ -142,7 +151,24 @@ class QuestProgress(models.Model):
     )
     points_awarded = models.BooleanField(
         default=False,
-        help_text="Whether quest.points_reward is currently included in team.score."
+        help_text="Whether quest.points_reward (the completion points) is currently included in team.score."
+    )
+    awarded_points = models.IntegerField(
+        default=0,
+        help_text=(
+            "Points the team currently holds from this quest: completion points plus any value-scoring "
+            "bucket points and extreme bonus. team.score moves by the change in this value."
+        )
+    )
+    buckets = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Value-scoring buckets found (bucket starts, e.g. [1920, 1950] for decades), sorted."
+    )
+    best_value = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="The team's extreme verified value on a value-scoring quest (min or max per the rule)."
     )
     updated_at = models.DateTimeField(
         auto_now=True,

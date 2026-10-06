@@ -34,6 +34,7 @@ class SubmissionSerializer(serializers.ModelSerializer):
             'verified_at',
             'element_count',
             'contributed_at',
+            'extracted_value',
             'created_at',
         ]
         read_only_fields = ['id', 'created_at']
@@ -45,6 +46,20 @@ class VerifySubmissionInputSerializer(serializers.Serializer):
     """
     is_verified = serializers.BooleanField(default=True)
     verified_by_username = serializers.CharField(max_length=255, default='Host')
+    # Optional host correction of a value-scoring quest's value (e.g. a misread stamp year);
+    # null clears it. Omit to keep the harvested value.
+    extracted_value = serializers.FloatField(required=False, allow_null=True)
+
+
+class QuestStandingSerializer(serializers.ModelSerializer):
+    """One team's standing on a quest (GET /api/quests/<id>/standings/)."""
+    team_name = serializers.CharField(source='team.name', read_only=True)
+    verified_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = QuestProgress
+        fields = ['team', 'team_name', 'awarded_points', 'buckets', 'best_value', 'verified_count']
+        read_only_fields = fields
 
 
 class QuestProgressSerializer(serializers.ModelSerializer):
@@ -66,5 +81,8 @@ class QuestProgressSerializer(serializers.ModelSerializer):
             'points_reward',
             'completed_at',
             'points_awarded',
+            'awarded_points',
+            'buckets',
+            'best_value',
         ]
         read_only_fields = fields

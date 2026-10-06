@@ -5,15 +5,17 @@ End-to-end smoke test for AdventureTogether against a running local backend.
 Exercises the participant and host flows the FOSS4G NA 2026 event depends on:
 seeding the event, forming a team with contributor usernames, a GPS check-in
 that auto-verifies and scores, counted quests advancing through host
-verification, the leaderboard, and (when OVERPASS_URL is set) a dry-run harvest
-against the real external APIs.
+verification, a value-scoring quest (per-decade points and an oldest-stamp bonus
+that moves between teams), the leaderboard, and (when OVERPASS_URL is set) a
+dry-run harvest against the real external APIs.
 
 Usage (backend running on 127.0.0.1:8000, env sourced as in documentation/local_setup.md):
 
     cd backend && .venv/bin/python ../scripts/e2e_smoke.py [--base http://127.0.0.1:8000] [--keep]
 
 Exit code 0 means every assertion passed. The script creates a throwaway team and
-cleans it up unless --keep is given. It never prints OVERPASS_URL.
+cleans it up unless --keep is given (the temporary value-scoring quest and its
+second team are always removed). It never prints OVERPASS_URL.
 """
 
 import argparse
@@ -58,6 +60,16 @@ def manage(*args):
         print(f'  manage.py {" ".join(args)} failed with exit {result.returncode}')
         sys.exit(1)
     return result.stdout
+
+
+def progress_row(api, team_id, quest_id):
+    rows = requests.get(f'{api}/teams/{team_id}/progress/', timeout=10).json()
+    return next(p for p in rows if p['quest'] == quest_id)
+
+
+def leaderboard_score(api, event_id, team_id):
+    board = requests.get(f'{api}/events/{event_id}/leaderboard/', timeout=10).json()
+    return next(t for t in board if t['id'] == team_id)['score']
 
 
 def harvest_dry_run(event_id):
@@ -166,6 +178,64 @@ def main():
     requests.post(f'{api}/submissions/{second.json()["id"]}/verify/', json={'is_verified': False}, timeout=10)
     mine = next(t for t in requests.get(f'{api}/events/{event_id}/leaderboard/', timeout=10).json() if t['id'] == team_id)
     check(mine['score'] == capitol['points_reward'], 'revoking a submission takes the quest points back')
+
+    print('5b. Value-scoring quest: points per decade and the oldest-stamp bonus')
+    run = int(time.time())
+    stamps = requests.post(f'{api}/quests/', json={
+        'event': event_id, 'title': f'E2E stamps {run} (temporary)', 'description': 'temporary',
+        'criteria_type': 'wikimedia_commons', 'target_geometry': None, 'points_reward': 10,
+        'validation_rules': {'target_count': 1, 'scoring': {
+            'value': {'source': 'description', 'pattern': r'\b((?:18|19|20)\d{2})\b', 'kind': 'year'},
+            'per_bucket': {'size': 10, 'points': 5},
+            'extreme_bonus': {'direction': 'min', 'points': 25},
+        }},
+    }, timeout=10)
+    check(stamps.status_code == 201, 'temporary value-scoring quest created')
+    stamps_id = stamps.json()['id']
+
+    def stamp(on_team, year, tag):
+        sub = requests.post(f'{api}/submissions/', json={
+            'event': event_id, 'quest': stamps_id, 'team': on_team, 'platform': 'commons',
+            'external_id': f'e2e-{run}-stamp-{tag}/q{stamps_id}', 'author_username': 'E2E Wiki',
+            'external_url': 'https://commons.wikimedia.org/wiki/File:E2E_stamp.jpg',
+            'diff_payload': {'description': f'e2e stamp {year}'}, 'extracted_value': year,
+        }, timeout=10)
+        check(sub.status_code == 201 and sub.json()['extracted_value'] == year, f'stamp {year} submitted')
+        verified = requests.post(f'{api}/submissions/{sub.json()["id"]}/verify/', json={'is_verified': True}, timeout=10)
+        check(verified.status_code == 200, f'stamp {year} verified')
+
+    before = leaderboard_score(api, event_id, team_id)
+    stamp(team_id, 1923, 'a')
+    stamp(team_id, 1958, 'b')
+    row = progress_row(api, team_id, stamps_id)
+    check(row['awarded_points'] == 10 + 5 * 2 + 25 and row['buckets'] == [1920, 1950] and row['best_value'] == 1923,
+          f'first team holds 45 from the quest ({row["awarded_points"]}, buckets {row["buckets"]}, best {row["best_value"]})')
+    check(leaderboard_score(api, event_id, team_id) == before + 45, 'leaderboard includes the 45')
+
+    rivals = requests.post(f'{api}/teams/', json={'event': event_id, 'name': 'E2E Smoke Rivals'}, timeout=10)
+    if rivals.status_code == 400:  # left over from an aborted run
+        teams = requests.get(f'{api}/teams/', params={'event': event_id}, timeout=10).json()
+        rivals_id = next(t for t in teams.get('results', teams) if t['name'] == 'E2E Smoke Rivals')['id']
+    else:
+        check(rivals.status_code == 201, 'second team created')
+        rivals_id = rivals.json()['id']
+    rivals_before = leaderboard_score(api, event_id, rivals_id)
+    stamp(rivals_id, 1911, 'c')
+    first_row = progress_row(api, team_id, stamps_id)
+    rival_row = progress_row(api, rivals_id, stamps_id)
+    check(first_row['awarded_points'] == 20, f'bonus left the first team ({first_row["awarded_points"]})')
+    check(rival_row['awarded_points'] == 10 + 5 + 25, f'bonus moved to the second team ({rival_row["awarded_points"]})')
+    check(leaderboard_score(api, event_id, team_id) == before + 20, 'first team score dropped by the bonus')
+    standings = requests.get(f'{api}/quests/{stamps_id}/standings/', timeout=10).json()
+    check(standings['extreme_holder_team_ids'] == [rivals_id] and standings['extreme_value'] == 1911
+          and standings['standings'][0]['team'] == rivals_id, 'standings show the second team holding the oldest stamp')
+
+    deleted = requests.delete(f'{api}/quests/{stamps_id}/', timeout=10)
+    check(deleted.status_code == 204, 'temporary quest deleted')
+    check(leaderboard_score(api, event_id, team_id) == before, 'deleting the quest revoked the first team\'s points')
+    check(leaderboard_score(api, event_id, rivals_id) == rivals_before, 'deleting the quest revoked the second team\'s points')
+    deleted = requests.delete(f'{api}/teams/{rivals_id}/', timeout=10)
+    check(deleted.status_code == 204, 'second team deleted')
 
     print('6. Harvest dry-run against real external APIs')
     if os.environ.get('OVERPASS_URL'):

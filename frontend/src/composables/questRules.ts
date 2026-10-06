@@ -13,6 +13,12 @@
  *   location_checkin   {radius_m, min_minutes}
  *   street_imagery     {target_count}
  *
+ * Any type can also carry an optional `scoring` block (value scoring: points per distinct
+ * bucket of values and a bonus for the extreme value; see documentation/quest_types.md):
+ *
+ *   scoring {value?: {source: "description" | "tag:<key>", pattern?, kind: "year" | "number"},
+ *            per_bucket?: {size, points}, extreme_bonus?: {direction: "min" | "max", points}}
+ *
  * rulesToForm is the inverse, used when the builder edits an existing quest.
  * Kept free of Vue so it can be unit-tested directly.
  */
@@ -22,6 +28,57 @@ import type { CriteriaType } from '../api'
 /** Which osm_tags edits count: added or updated, newly created elements, or updates only. */
 export type OsmAction = 'any' | 'create' | 'modify'
 const OSM_ACTIONS: OsmAction[] = ['any', 'create', 'modify']
+
+/** Where a value-scoring quest reads its value; 'none' means hosts enter values when verifying. */
+export type ScoringSource = 'description' | 'tag' | 'none'
+export type ScoringKind = 'year' | 'number'
+
+/** The backend's default patterns (services/value_extraction.py), used when the form's is blank. */
+export const DEFAULT_SCORING_PATTERNS: Record<ScoringKind, string> = {
+  year: '\\b((?:16|17|18|19|20)\\d{2})\\b',
+  number: '-?\\d+(?:\\.\\d+)?'
+}
+
+export interface ScoringForm {
+  enabled: boolean
+  source: ScoringSource
+  /** Tag read on each element when source is 'tag', e.g. "start_date". */
+  tagKey: string
+  kind: ScoringKind
+  /** Regex whose first valid match is the value; blank uses DEFAULT_SCORING_PATTERNS[kind]. */
+  pattern: string
+  bucketEnabled: boolean
+  bucketSize: number
+  bucketPoints: number
+  bonusEnabled: boolean
+  bonusDirection: 'min' | 'max'
+  bonusPoints: number
+}
+
+/** Value scoring off, with the sidewalk-stamp values ready for when it is switched on. */
+export function defaultScoringForm(): ScoringForm {
+  return {
+    enabled: false,
+    source: 'description',
+    tagKey: 'start_date',
+    kind: 'year',
+    pattern: DEFAULT_SCORING_PATTERNS.year,
+    bucketEnabled: true,
+    bucketSize: 10,
+    bucketPoints: 5,
+    bonusEnabled: true,
+    bonusDirection: 'min',
+    bonusPoints: 25
+  }
+}
+
+/**
+ * The pattern to show after the kind changes: a pattern still at the old kind's default (or
+ * blank) follows the new kind; one the host wrote is kept.
+ */
+export function patternForKind(pattern: string, from: ScoringKind, to: ScoringKind): string {
+  return !pattern.trim() || pattern === DEFAULT_SCORING_PATTERNS[from] ? DEFAULT_SCORING_PATTERNS[to] : pattern
+}
 
 export interface TagRow {
   key: string
@@ -47,6 +104,8 @@ export interface RuleForm {
   allowedOwners: string
   checkinRadiusM: number
   minMinutes: number
+  /** validation_rules.scoring, for every type. */
+  scoring: ScoringForm
 }
 
 /** Fresh form values with the contract's defaults. */
@@ -67,7 +126,8 @@ export function defaultRuleForm(): RuleForm {
     kinds: { pr: true, issue: true },
     allowedOwners: '',
     checkinRadiusM: 50,
-    minMinutes: 0
+    minMinutes: 0,
+    scoring: defaultScoringForm()
   }
 }
 
@@ -88,12 +148,41 @@ export function tagsToObject(rows: TagRow[]): Record<string, string> {
 
 const positiveInt = (value: number, fallback: number) =>
   Number.isFinite(value) && value >= 1 ? Math.round(value) : fallback
+const intOr = (value: number, fallback: number) => (Number.isFinite(value) ? Math.round(value) : fallback)
 
+/** The `scoring` block for the form, or null when value scoring is off. */
+export function composeScoring(form: ScoringForm): Record<string, any> | null {
+  if (!form.enabled) return null
+  const scoring: Record<string, any> = {}
+  if (form.source !== 'none') {
+    scoring.value = {
+      source: form.source === 'tag' ? `tag:${form.tagKey.trim()}` : 'description',
+      ...(form.pattern.trim() ? { pattern: form.pattern } : {}),
+      kind: form.kind
+    }
+  }
+  if (form.bucketEnabled) {
+    const size = Number.isFinite(form.bucketSize) && form.bucketSize > 0 ? form.bucketSize : 10
+    scoring.per_bucket = { size, points: intOr(form.bucketPoints, 0) }
+  }
+  if (form.bonusEnabled) {
+    scoring.extreme_bonus = { direction: form.bonusDirection, points: intOr(form.bonusPoints, 0) }
+  }
+  return scoring
+}
+
+/** validation_rules for the form: the type's own keys plus `scoring` when value scoring is on. */
 export function composeValidationRules(
   type: CriteriaType,
   form: RuleForm,
   hasPointTarget: boolean
 ): Record<string, any> {
+  const rules = composeTypeRules(type, form, hasPointTarget)
+  const scoring = composeScoring(form.scoring)
+  return scoring ? { ...rules, scoring } : rules
+}
+
+function composeTypeRules(type: CriteriaType, form: RuleForm, hasPointTarget: boolean): Record<string, any> {
   const target_count = positiveInt(form.targetCount, 1)
 
   switch (type) {
@@ -134,17 +223,20 @@ export function composeValidationRules(
   }
 }
 
-/** The validation_rules keys the builder form models, per type. Anything else is kept as is on edit. */
+/**
+ * The validation_rules keys the builder form models, per type (every type models `scoring`).
+ * Anything else is kept as is on edit.
+ */
 export const MODELLED_RULE_KEYS: Record<CriteriaType, string[]> = {
-  osm_tags: ['required_tags', 'target_count', 'require_hashtag', 'radius_m', 'action'],
-  wikimedia_commons: ['category', 'target_count'],
-  wikidata_entry: ['target_count'],
-  wikidata_statement: ['qid', 'properties', 'target_count'],
-  osm_notes: ['target_count'],
-  ohm_feature: ['required_tags', 'target_count'],
-  oss_contribution: ['kinds', 'allowed_owners', 'target_count'],
-  location_checkin: ['radius_m', 'min_minutes'],
-  street_imagery: ['target_count']
+  osm_tags: ['required_tags', 'target_count', 'require_hashtag', 'radius_m', 'action', 'scoring'],
+  wikimedia_commons: ['category', 'target_count', 'scoring'],
+  wikidata_entry: ['target_count', 'scoring'],
+  wikidata_statement: ['qid', 'properties', 'target_count', 'scoring'],
+  osm_notes: ['target_count', 'scoring'],
+  ohm_feature: ['required_tags', 'target_count', 'scoring'],
+  oss_contribution: ['kinds', 'allowed_owners', 'target_count', 'scoring'],
+  location_checkin: ['radius_m', 'min_minutes', 'scoring'],
+  street_imagery: ['target_count', 'scoring']
 }
 
 /** {key: value} to tag rows (the inverse of tagsToObject). */
@@ -162,6 +254,39 @@ const numberOr = (value: unknown, fallback: number) => {
   return value !== null && value !== undefined && value !== '' && Number.isFinite(n) ? n : fallback
 }
 
+/** The inverse of composeScoring: a quest's `scoring` block (or none) as the form. */
+export function scoringToForm(scoring: unknown): ScoringForm {
+  const form = defaultScoringForm()
+  if (!scoring || typeof scoring !== 'object') return form
+  const s = scoring as Record<string, any>
+  form.enabled = true
+
+  const value = s.value && typeof s.value === 'object' ? s.value : null
+  if (!value) {
+    form.source = 'none'
+  } else if (typeof value.source === 'string' && value.source.startsWith('tag:')) {
+    form.source = 'tag'
+    form.tagKey = value.source.slice(4)
+  } else {
+    form.source = 'description'
+  }
+  form.kind = value?.kind === 'number' ? 'number' : 'year'
+  // Blank means "the backend default", so a rule without a pattern stays without one
+  form.pattern = value ? (typeof value.pattern === 'string' ? value.pattern : '') : DEFAULT_SCORING_PATTERNS[form.kind]
+
+  form.bucketEnabled = Boolean(s.per_bucket && typeof s.per_bucket === 'object')
+  if (form.bucketEnabled) {
+    form.bucketSize = numberOr(s.per_bucket.size, form.bucketSize)
+    form.bucketPoints = numberOr(s.per_bucket.points, form.bucketPoints)
+  }
+  form.bonusEnabled = Boolean(s.extreme_bonus && typeof s.extreme_bonus === 'object')
+  if (form.bonusEnabled) {
+    form.bonusDirection = s.extreme_bonus.direction === 'max' ? 'max' : 'min'
+    form.bonusPoints = numberOr(s.extreme_bonus.points, form.bonusPoints)
+  }
+  return form
+}
+
 /**
  * The inverse of composeValidationRules: decomposes a quest's validation_rules into the
  * builder form so an existing quest can be edited. Keys the type does not use, and missing
@@ -171,6 +296,7 @@ export function rulesToForm(type: CriteriaType, rules: Record<string, any> | nul
   const form = defaultRuleForm()
   const r = rules && typeof rules === 'object' ? rules : {}
   form.targetCount = numberOr(r.target_count, form.targetCount)
+  form.scoring = scoringToForm(r.scoring)
 
   switch (type) {
     case 'osm_tags':
@@ -211,8 +337,24 @@ export function unmodelledRules(type: CriteriaType, rules: Record<string, any> |
   return Object.fromEntries(Object.entries(rules || {}).filter(([key]) => !known.has(key)))
 }
 
+/** A human-readable problem with the value-scoring inputs, or null when they are usable (or off). */
+export function validateScoringForm(form: ScoringForm): string | null {
+  if (!form.enabled) return null
+  if (form.source === 'tag' && !form.tagKey.trim()) return 'Value scoring: enter the OSM tag to read, e.g. start_date.'
+  if (!form.bucketEnabled && !form.bonusEnabled) return 'Value scoring: turn on points per bucket, the bonus, or both.'
+  if (form.bucketEnabled && !(Number.isFinite(form.bucketSize) && form.bucketSize > 0)) {
+    return 'Value scoring: the bucket size must be more than 0 (10 for decades).'
+  }
+  return null
+}
+
 /** Returns a human-readable problem with the rules for this type, or null when they are usable. */
 export function validateRuleForm(type: CriteriaType, form: RuleForm, hasPointTarget: boolean): string | null {
+  const typeProblem = validateTypeRules(type, form, hasPointTarget)
+  return typeProblem ?? validateScoringForm(form.scoring)
+}
+
+function validateTypeRules(type: CriteriaType, form: RuleForm, hasPointTarget: boolean): string | null {
   switch (type) {
     case 'osm_tags':
       return Object.keys(tagsToObject(form.osmTags)).length ? null : 'Add at least one required OSM tag.'

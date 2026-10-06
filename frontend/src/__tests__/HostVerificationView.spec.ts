@@ -11,6 +11,7 @@ vi.mock('../api', async (importOriginal) => {
       getEvent: vi.fn().mockResolvedValue({ id: 1, title: 'Demo', hashtag: 'Demo' }),
       getSubmissions: vi.fn().mockResolvedValue([]),
       getTeamProgress: vi.fn().mockResolvedValue([]),
+      getQuests: vi.fn().mockResolvedValue([]),
       verifySubmission: vi.fn()
     }
   }
@@ -35,6 +36,67 @@ describe('HostVerificationView Component', () => {
     ;(api.getEvent as any).mockResolvedValue({ id: 1, title: 'Demo', hashtag: 'Demo' })
     ;(api.getSubmissions as any).mockResolvedValue([])
     ;(api.getTeamProgress as any).mockResolvedValue([])
+    ;(api.getQuests as any).mockResolvedValue([])
+  })
+
+  it('shows the value on value-scoring submissions and saves a correction through verify', async () => {
+    const { api } = await import('../api')
+    const stamp = {
+      id: 7, event: 1, quest: 24, quest_title: 'Stamped in Sacramento', team: 4, team_name: 'Organisers',
+      platform: 'commons', platform_display: 'Wikimedia Commons', external_id: '501/q24', author_username: 'Photo Alice',
+      external_url: 'https://commons.wikimedia.org/wiki/File:Stamp.jpg', diff_payload: { title: 'File:Stamp.jpg' },
+      is_verified: false, verified_by_username: null, verified_at: null, element_count: 1, contributed_at: null,
+      extracted_value: 1923, created_at: ''
+    }
+    ;(api.getSubmissions as any).mockResolvedValue([
+      stamp,
+      { ...stamp, id: 8, quest: 3, quest_title: 'Lock it up', platform: 'osm', external_id: '9/q3', extracted_value: null }
+    ])
+    ;(api.getQuests as any).mockResolvedValue([
+      { id: 24, criteria_type: 'wikimedia_commons', validation_rules: { scoring: { value: { kind: 'year' }, per_bucket: { size: 10, points: 5 } } } },
+      { id: 3, criteria_type: 'osm_tags', validation_rules: { target_count: 10 } }
+    ])
+    ;(api.verifySubmission as any).mockResolvedValue({ ...stamp, extracted_value: 1913, is_verified: false })
+
+    router.push('/events/1/host/verify')
+    await router.isReady()
+    const wrapper = mount(HostVerificationView, { global: { plugins: [router] } })
+    await flushPromises()
+
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows[0].find('.value-cell').text()).toContain('Value: 1923')
+    // Quests that do not score values get no value cell
+    expect(rows[1].find('.value-cell').exists()).toBe(false)
+
+    await rows[0].find('.value-edit').trigger('click')
+    await rows[0].find('.value-input').setValue('1913')
+    await rows[0].find('.value-save').trigger('click')
+    await flushPromises()
+
+    // The verification state is kept: only the value changes
+    expect(api.verifySubmission).toHaveBeenCalledWith(7, 'Host', { isVerified: false, extractedValue: 1913 })
+    expect(wrapper.findAll('tbody tr')[0].find('.value-cell').text()).toContain('Value: 1913')
+    expect(wrapper.text()).toContain('Value for #501/q24 set to 1913.')
+  })
+
+  it('un-verifies a verified submission from the toggle', async () => {
+    const { api } = await import('../api')
+    const sub = {
+      id: 9, event: 1, quest: 3, quest_title: 'Lock it up', team: null, team_name: null, platform: 'osm',
+      external_id: '9/q3', author_username: 'a', external_url: 'https://www.openstreetmap.org/changeset/9',
+      diff_payload: {}, is_verified: true, verified_by_username: 'Host', verified_at: '', created_at: ''
+    }
+    ;(api.getSubmissions as any).mockResolvedValue([sub])
+    ;(api.verifySubmission as any).mockResolvedValue({ ...sub, is_verified: false, verified_by_username: null })
+
+    router.push('/events/1/host/verify')
+    await router.isReady()
+    const wrapper = mount(HostVerificationView, { global: { plugins: [router] } })
+    await flushPromises()
+    await wrapper.find('tbody tr .btn-primary').trigger('click')
+    await flushPromises()
+    expect(api.verifySubmission).toHaveBeenCalledWith(9, 'Host', { isVerified: false })
+    expect(wrapper.find('tbody tr').text()).toContain('Verify')
   })
 
   it('renders the verification portal header and filter controls', async () => {
