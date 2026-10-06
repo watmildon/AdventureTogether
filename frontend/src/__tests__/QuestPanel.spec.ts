@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { ref } from 'vue'
 import QuestPanel from '../components/QuestPanel.vue'
-import { useQuestProgress, readStoredTeamId } from '../composables/useQuestProgress'
+import { useQuestProgress, readStoredTeamId, readStoredTeam } from '../composables/useQuestProgress'
 import type { QuestData, QuestProgressData } from '../api'
 
 // Progress and leaderboard come from the API; stub the client so the panel is fed by the real composable
@@ -109,6 +109,15 @@ describe('QuestPanel with team progress', () => {
     expect(cards[1].text()).toContain("You're here")
   })
 
+  it('distinguishes dwelling from checked in', () => {
+    const dwelling = mount(QuestPanel, { props: { quests, checkins: { 8: 'dwelling' } } })
+    expect(dwelling.findAll('.quest-card')[1].text()).toContain("You're here, stay a few minutes")
+    expect(dwelling.findAll('.quest-card')[1].text()).not.toContain('Checked in')
+
+    const verified = mount(QuestPanel, { props: { quests, checkins: { 8: 'verified' } } })
+    expect(verified.findAll('.quest-card')[1].text()).toContain('✓ Checked in')
+  })
+
   it('emits show-on-map with the quest', async () => {
     const wrapper = mount(QuestPanel, { props: { quests } })
     await wrapper.findAll('.show-btn')[0].trigger('click')
@@ -130,12 +139,30 @@ describe('useQuestProgress', () => {
     expect(leaderboard.value[0].name).toBe('Team Compass')
   })
 
-  it('reads the team id from the event-scoped record, then the global key', () => {
+  it('reads the team id only from the event-scoped record, never the global key', () => {
     localStorage.clear()
     expect(readStoredTeamId(2)).toBeNull()
+    // The global key holds whichever team was joined last, possibly for another event
     localStorage.setItem('team_id', '9')
-    expect(readStoredTeamId(2)).toBe(9)
+    expect(readStoredTeamId(2)).toBeNull()
     localStorage.setItem('team_for_event_2', JSON.stringify({ id: 4, name: 'Organisers' }))
     expect(readStoredTeamId(2)).toBe(4)
+    expect(readStoredTeam(2)).toEqual({ id: 4, name: 'Organisers' })
+  })
+
+  it('does not carry a team joined for event 1 over to event 2', () => {
+    localStorage.clear()
+    localStorage.setItem('team_for_event_1', JSON.stringify({ id: 4, name: 'Organisers' }))
+    localStorage.setItem('team_id', '4')
+    localStorage.setItem('team_name', 'Organisers')
+    expect(readStoredTeamId(1)).toBe(4)
+    expect(readStoredTeamId(2)).toBeNull()
+    expect(readStoredTeam(2)).toBeNull()
+  })
+
+  it('treats a corrupt event-scoped record as no team', () => {
+    localStorage.clear()
+    localStorage.setItem('team_for_event_2', '{not json')
+    expect(readStoredTeamId(2)).toBeNull()
   })
 })

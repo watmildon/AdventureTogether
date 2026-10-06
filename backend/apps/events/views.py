@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from apps.teams.serializers import TeamLeaderboardSerializer
 from .models import Event
 from .serializers import EventSerializer, EventGeoSerializer
-from .services.schedule import ScheduleFetchError, fetch_schedule_sessions
+from .services.schedule import ScheduleFetchError, fetch_schedule_sessions, schedule_url_error
 
 
 class EventViewSet(viewsets.ModelViewSet):
@@ -60,7 +60,8 @@ class EventViewSet(viewsets.ModelViewSet):
     def sessions(self, request, pk=None):
         """
         Returns the conference sessions from the event's schedule_url (pretalx/frab JSON),
-        flattened into the Quest.inspired_by shape. Cached for 10 minutes per URL.
+        flattened into the Quest.inspired_by shape. Cached for 10 minutes per URL. A URL outside
+        settings.SCHEDULE_URL_ALLOWED_HOSTS (e.g. stored before the allowlist) is refused with 400.
         """
         event = self.get_object()
         if not event.schedule_url:
@@ -68,6 +69,9 @@ class EventViewSet(viewsets.ModelViewSet):
                 {'error': 'This event has no schedule_url configured.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        url_error = schedule_url_error(event.schedule_url)
+        if url_error:
+            return Response({'error': url_error}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             sessions = fetch_schedule_sessions(event.schedule_url)

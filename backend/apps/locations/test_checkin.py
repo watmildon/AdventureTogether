@@ -6,16 +6,20 @@ from datetime import datetime, timedelta, timezone as dt_timezone
 from unittest import mock
 
 from django.contrib.gis.geos import Point, Polygon
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from rest_framework.test import APIClient
 
 from apps.events.models import Event
 from apps.quests.models import Quest
 from apps.submissions.models import QuestProgress, Submission
+from apps.submissions.services.checkin import participant_checkins, process_checkin_ping
 from apps.submissions.services.progress import set_submission_verification
 from apps.teams.models import Team, TeamMembership
 from .geo import haversine_m
+from .models import LocationPing
 
 # Sacramento Public Market entrance, roughly.
 TARGET_LON, TARGET_LAT = -121.4944, 38.5800
@@ -250,3 +254,32 @@ class CheckinQuestTests(TestCase):
         )
         empty = self.client.get(self.checkins_url, {'event': self.event.id, 'user_identifier': 'nobody'})
         self.assertEqual(empty.data, [])
+
+    def test_checkins_are_ordered_by_last_seen(self):
+        far_quest = self.make_quest(title="Far quest", target_geometry=Point(*FAR, srid=4326))
+        self.ping(T0)                                # first check-in at the near quest
+        self.ping(T0 + timedelta(minutes=1), FAR)    # then the far quest
+        self.ping(T0 + timedelta(minutes=5))         # back at the near quest: most recent activity
+
+        ordered = participant_checkins(self.event.id, 'alice')
+        self.assertEqual([sub.quest_id for sub in ordered], [self.quest.id, far_quest.id])
+        response = self.client.get(self.checkins_url, {'event': self.event.id, 'user_identifier': 'alice'})
+        self.assertEqual([row['quest'] for row in response.data], [self.quest.id, far_quest.id])
+
+    def make_ping(self, user, team=None):
+        with mock.patch('django.utils.timezone.now', return_value=T0):
+            return LocationPing.objects.create(
+                event=self.event, user_identifier=user, display_name=user.title(), team=team,
+                coordinates=Point(*NEAR, srid=4326),
+            )
+
+    def test_team_stored_on_ping_is_used_without_membership_query(self):
+        ping = self.make_ping("alice", team=self.team)
+        with CaptureQueriesContext(connection) as queries:
+            process_checkin_ping(ping)
+        self.assertFalse(any('teams_teammembership' in q['sql'] for q in queries.captured_queries))
+        self.assertEqual(self.submission().team, self.team)
+
+    def test_ping_without_team_falls_back_to_membership(self):
+        process_checkin_ping(self.make_ping("alice"))
+        self.assertEqual(self.submission().team, self.team)

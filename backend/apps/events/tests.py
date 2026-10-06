@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from django.contrib.gis.geos import Polygon, Point
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -15,6 +15,7 @@ from apps.quests.models import Quest
 from apps.submissions.models import QuestProgress
 from apps.teams.models import Team, TeamMembership
 from .models import Event
+from .services.schedule import ScheduleFetchError, fetch_schedule_sessions, schedule_url_error
 
 
 class EventModelSpatialTests(TestCase):
@@ -223,7 +224,7 @@ FRAB_SCHEDULE_FIXTURE = {
     }
 }
 
-SCHEDULE_URL = "https://talks.example.org/foss4g-na-2026/schedule/export/schedule.json"
+SCHEDULE_URL = "https://talks.osgeo.org/foss4g-na-2026/schedule/export/schedule.json"
 
 
 class EventLeaderboardAndSessionsAPITests(TestCase):
@@ -332,3 +333,95 @@ class EventLeaderboardAndSessionsAPITests(TestCase):
     def test_event_api_exposes_schedule_url(self):
         response = self.client.get(reverse('events:event-detail', kwargs={'pk': self.event.id}))
         self.assertEqual(response.data['schedule_url'], SCHEDULE_URL)
+
+
+@override_settings(SCHEDULE_URL_ALLOWED_HOSTS=['talks.osgeo.org', 'pretalx.com'])
+class ScheduleUrlAllowlistTests(TestCase):
+    """
+    Event.schedule_url is client-writable and fetched server-side, so only https URLs on
+    allowlisted hosts (or their subdomains) are accepted and fetched.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+        now = datetime.now(timezone.utc)
+        self.event_data = {
+            'title': 'Allowlist Hunt',
+            'hashtag': 'AllowlistHunt',
+            'bounding_polygon': Polygon.from_bbox((-121.51, 38.57, -121.48, 38.59)).geojson,
+            'start_time': now.isoformat(),
+            'end_time': (now + timedelta(days=1)).isoformat(),
+        }
+
+    def create_event(self, schedule_url):
+        return self.client.post(reverse('events:event-list'), dict(self.event_data, schedule_url=schedule_url),
+                                format='json')
+
+    def test_allowed_host_and_subdomain_pass(self):
+        self.assertIsNone(schedule_url_error(SCHEDULE_URL))
+        self.assertIsNone(schedule_url_error('https://pretalx.com/foss4g/schedule/export/schedule.json'))
+        self.assertIsNone(schedule_url_error('https://cfp.pretalx.com/foss4g/schedule.json'))
+        self.assertEqual(self.create_event(SCHEDULE_URL).status_code, status.HTTP_201_CREATED)
+        response = self.create_event('https://cfp.pretalx.com/foss4g/schedule.json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_blank_schedule_url_is_allowed(self):
+        self.assertEqual(self.create_event('').status_code, status.HTTP_201_CREATED)
+
+    def test_disallowed_host_is_rejected(self):
+        for url in ('https://evil.example.com/schedule.json',
+                    'https://evilpretalx.com/schedule.json',              # suffix, not a subdomain
+                    'https://talks.osgeo.org.evil.example/schedule.json',
+                    'https://talks.osgeo.org@evil.example/schedule.json'):  # userinfo trick
+            self.assertIn('not allowed', schedule_url_error(url), url)
+        response = self.create_event('https://evil.example.com/schedule.json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('schedule_url', response.data)
+
+    def test_http_scheme_is_rejected(self):
+        self.assertEqual(schedule_url_error('http://talks.osgeo.org/schedule.json'), 'Schedule URL must use https.')
+        self.assertEqual(self.create_event('http://talks.osgeo.org/schedule.json').status_code,
+                         status.HTTP_400_BAD_REQUEST)
+
+    @patch('apps.events.services.schedule.requests.get')
+    def test_private_ip_is_rejected_without_fetching(self, mock_get):
+        for url in ('https://10.0.0.5/schedule.json', 'https://169.254.169.254/latest/meta-data/',
+                    'https://[::1]/schedule.json'):
+            self.assertIsNotNone(schedule_url_error(url), url)
+            with self.assertRaises(ScheduleFetchError):
+                fetch_schedule_sessions(url)
+        self.assertEqual(self.create_event('https://127.0.0.1/schedule.json').status_code,
+                         status.HTTP_400_BAD_REQUEST)
+        mock_get.assert_not_called()
+
+    @patch('apps.events.services.schedule.requests.get')
+    def test_stored_disallowed_url_is_refused_by_sessions_endpoint(self, mock_get):
+        now = datetime.now(timezone.utc)
+        event = Event.objects.create(
+            title='Legacy', hashtag='Legacy', bounding_polygon=Polygon.from_bbox((-121.51, 38.57, -121.48, 38.59)),
+            start_time=now, end_time=now + timedelta(days=1), schedule_url='https://internal.example/x.json',
+        )
+        response = self.client.get(reverse('events:event-sessions', kwargs={'pk': event.id}))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('not allowed', response.data['error'])
+        mock_get.assert_not_called()
+
+    @patch('apps.events.services.schedule.requests.get')
+    def test_redirect_to_disallowed_host_is_refused(self, mock_get):
+        mock_get.return_value = MagicMock(status_code=302, headers={'Location': 'https://10.0.0.5/schedule.json'})
+        with self.assertRaises(ScheduleFetchError) as ctx:
+            fetch_schedule_sessions(SCHEDULE_URL)
+        self.assertIn('redirect', str(ctx.exception))
+        self.assertEqual(mock_get.call_count, 1)
+        self.assertFalse(mock_get.call_args.kwargs['allow_redirects'])
+
+    @patch('apps.events.services.schedule.requests.get')
+    def test_redirect_within_allowlist_is_followed(self, mock_get):
+        mock_get.side_effect = [
+            MagicMock(status_code=301, headers={'Location': '/foss4g-na-2026/schedule/export/schedule.json'}),
+            MagicMock(status_code=200, json=MagicMock(return_value=FRAB_SCHEDULE_FIXTURE)),
+        ]
+        sessions = fetch_schedule_sessions('https://talks.osgeo.org/foss4g-na-2026/schedule.json')
+        self.assertEqual(len(sessions), 3)
+        self.assertEqual(mock_get.call_args.args[0], SCHEDULE_URL)

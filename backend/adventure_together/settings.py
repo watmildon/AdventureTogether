@@ -203,3 +203,12 @@ HARVEST_USER_AGENT = os.environ.get(
     'HARVEST_USER_AGENT',
     'AdventureTogether-Harvester/1.0 (https://github.com/mwhilden/AdventureTogether)'
 )
+
+# Hosts the server may fetch Event.schedule_url from (exact host or any subdomain, https only).
+# Event.schedule_url is client-writable, so this allowlist keeps the sessions endpoint from
+# being used to make the server request arbitrary (e.g. internal) URLs.
+SCHEDULE_URL_ALLOWED_HOSTS = [
+    host.strip().lower()
+    for host in os.environ.get('SCHEDULE_URL_ALLOWED_HOSTS', 'talks.osgeo.org,pretalx.com').split(',')
+    if host.strip()
+]

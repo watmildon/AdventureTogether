@@ -1,6 +1,6 @@
 # Plan: FOSS4G NA 2026 Sample Event
 
-Status: **draft for review**. Nothing below is implemented yet.
+Status: **implemented on branch `feature/foss4gna-2026-event`** (overnight 2026-10-05/06); see `.junie/reports/summary_20261006_foss4gna_build.md` for what was built and what is still open. Sections 1-5 are the original plan; section 6 is annotated with what landed.
 
 Goal: ship AdventureTogether's first real event at FOSS4G North America 2026 in Sacramento, with a seeded event, a walkable quest set tied to the conference programme, and a handful of new quest types that fit the Open Data / Open Software theme.
 
@@ -135,7 +135,7 @@ Twenty quests is a lot for a three-day conference with a full programme; I would
 
 ## 6. Work breakdown
 
-Ordered so each step leaves the app working.
+Ordered so each step leaves the app working. Status after the overnight build: steps 1-10 done, step 11 (Panoramax) not started. The builder pins points only (no polygon drawing) and cannot edit existing quests; polygon targets come from the seed fixture.
 
 1. **Data model.** Add `inspired_by` JSON to `Quest`; add `osm_username`, `wikimedia_username`, `github_username` to `TeamMembership`; add the new `criteria_type` choices. Migrations, serializers, tests.
 2. **Seed command.** `manage.py seed_event path/to/event.json` that upserts an event, its quests, and `inspired_by` data from a JSON file. Commit `backend/fixtures/foss4gna_2026.json` built from the tables above. Also a `--from-pretalx URL` helper that fills `inspired_by` from the schedule export by talk code.

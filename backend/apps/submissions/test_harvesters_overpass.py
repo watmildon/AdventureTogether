@@ -10,11 +10,14 @@ from unittest.mock import MagicMock, patch
 import requests
 from django.contrib.gis.geos import Point, Polygon
 from django.core.cache import cache
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 
 from apps.events.models import Event
 from apps.quests.models import Quest
 from apps.submissions.models import QuestProgress, Submission
+from apps.submissions.services.harvest_common import HarvestContext, upsert_submission
 from apps.submissions.services.harvest_worker import harvest_event_submissions
 from apps.submissions.services.overpass_harvester import (
     build_area_filter,
@@ -400,3 +403,48 @@ class MatchAuthorToTeamTests(TestCase):
     def test_other_events_are_ignored(self):
         other = make_event(title='Other', hashtag='Other')
         self.assertIsNone(match_author_to_team(other, 'sam', 'osm'))
+
+
+class UpsertSubmissionTeamMatchingTests(TestCase):
+    """upsert_submission looks each author up once per run, and not at all for credited submissions."""
+
+    def setUp(self):
+        self.event = make_event()
+        self.team = Team.objects.create(event=self.event, name='Red')
+        TeamMembership.objects.create(team=self.team, user_identifier='device-r', osm_username='Alice')
+        self.quest = Quest.objects.create(event=self.event, title='Cafes', description='d')
+
+    def membership_queries(self, ctx, external_ids, author):
+        with CaptureQueriesContext(connection) as queries:
+            for external_id in external_ids:
+                upsert_submission(
+                    ctx, platform='osm', quest=self.quest, external_id=external_id,
+                    external_url=f'https://www.openstreetmap.org/changeset/{external_id}',
+                    author_username=author, contributed_at=self.event.start_time,
+                )
+        return sum('teams_teammembership' in q['sql'] for q in queries.captured_queries)
+
+    def test_same_author_is_matched_once_per_run(self):
+        ctx = HarvestContext(event=self.event)
+        one = self.membership_queries(ctx, ['1'], 'alice')
+        many = self.membership_queries(ctx, ['2', '3', '4', '5'], 'ALICE')
+        self.assertGreater(one, 0)
+        self.assertEqual(many, 0)
+        self.assertEqual(Submission.objects.filter(team=self.team).count(), 5)
+
+    def test_unmatched_author_is_cached_too(self):
+        ctx = HarvestContext(event=self.event)
+        self.membership_queries(ctx, ['1'], 'stranger')
+        self.assertEqual(self.membership_queries(ctx, ['2', '3'], 'stranger'), 0)
+        self.assertFalse(Submission.objects.filter(team__isnull=False).exists())
+
+    def test_existing_credited_submission_skips_matching(self):
+        self.membership_queries(HarvestContext(event=self.event), ['1'], 'alice')
+        # A fresh run (empty cache) re-seeing an already-credited submission does no lookup.
+        self.assertEqual(self.membership_queries(HarvestContext(event=self.event), ['1'], 'alice'), 0)
+
+    def test_existing_uncredited_submission_is_credited_on_a_later_run(self):
+        self.membership_queries(HarvestContext(event=self.event), ['1'], 'bob')
+        TeamMembership.objects.create(team=self.team, user_identifier='device-b', osm_username='bob')
+        self.membership_queries(HarvestContext(event=self.event), ['1'], 'bob')
+        self.assertEqual(Submission.objects.get(external_id='1').team, self.team)

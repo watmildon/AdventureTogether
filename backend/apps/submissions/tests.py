@@ -2,8 +2,14 @@
 Unit and Integration Tests for Multi-Platform Ingestion, Diff Parsing, and Host Verification.
 """
 
+import json
+import tempfile
 from datetime import datetime, timezone, timedelta
+from io import StringIO
+from pathlib import Path
+
 from django.contrib.gis.geos import Polygon
+from django.core.management import call_command
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
@@ -283,3 +289,101 @@ class QuestProgressServiceTests(TestCase):
         self.assertEqual(data['platform_display'], 'Panoramax')
         self.assertEqual(data['element_count'], 1)
         self.assertIn('contributed_at', data)
+
+
+class QuestDeletionScoreTests(TestCase):
+    """
+    Deleting a quest revokes the points it had awarded (QuestProgress rows cascade with it).
+    """
+
+    SEED = {
+        'event': {
+            'title': 'Deletion Hunt',
+            'slug': 'deletion-hunt',
+            'hashtag': 'DeletionHunt',
+            'bounding_polygon': {
+                'type': 'Polygon',
+                'coordinates': [[[-121.51, 38.57], [-121.48, 38.57], [-121.48, 38.59],
+                                 [-121.51, 38.59], [-121.51, 38.57]]],
+            },
+            'start_time': '2026-11-02T16:00:00+00:00',
+            'end_time': '2026-11-05T02:00:00+00:00',
+        },
+        'quests': [
+            {'title': 'Keep me', 'description': 'd', 'points_reward': 15},
+            {'title': 'Drop me', 'description': 'd', 'points_reward': 40},
+        ],
+    }
+
+    def award(self, team, quest):
+        Submission.objects.create(
+            event=quest.event, quest=quest, team=team, platform='osm',
+            external_id=f'{team.pk}-{quest.pk}', author_username='mapper',
+            external_url='https://www.openstreetmap.org/changeset/1',
+            element_count=quest.target_count, is_verified=True,
+        )
+        recompute_quest_progress(team, quest)
+
+    def test_api_delete_removes_awarded_points(self):
+        polygon = Polygon.from_bbox((-121.51, 38.57, -121.48, 38.59))
+        now = datetime.now(timezone.utc)
+        event = Event.objects.create(
+            title='Delete via API', hashtag='DeleteApi', bounding_polygon=polygon,
+            start_time=now, end_time=now + timedelta(days=1),
+        )
+        keep = Quest.objects.create(event=event, title='Keep', description='d', points_reward=15)
+        drop = Quest.objects.create(event=event, title='Drop', description='d', points_reward=40)
+        winners = Team.objects.create(event=event, name='Winners')
+        bystanders = Team.objects.create(event=event, name='Bystanders')
+        self.award(winners, keep)
+        self.award(winners, drop)
+        self.award(bystanders, keep)
+        # Started but not complete: no points to revoke.
+        QuestProgress.objects.create(team=bystanders, quest=drop, count=0)
+        winners.refresh_from_db()
+        self.assertEqual(winners.score, 55)
+
+        response = APIClient().delete(reverse('quests:quest-detail', kwargs={'pk': drop.pk}))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        winners.refresh_from_db()
+        bystanders.refresh_from_db()
+        self.assertEqual(winners.score, 15)
+        self.assertEqual(bystanders.score, 15)
+        self.assertFalse(QuestProgress.objects.filter(quest_id=drop.pk).exists())
+
+    def test_revoked_points_floor_at_zero(self):
+        polygon = Polygon.from_bbox((-121.51, 38.57, -121.48, 38.59))
+        now = datetime.now(timezone.utc)
+        event = Event.objects.create(
+            title='Floor', hashtag='Floor', bounding_polygon=polygon,
+            start_time=now, end_time=now + timedelta(days=1),
+        )
+        quest = Quest.objects.create(event=event, title='Big', description='d', points_reward=40)
+        team = Team.objects.create(event=event, name='Adjusted')
+        self.award(team, quest)
+        Team.objects.filter(pk=team.pk).update(score=10)  # e.g. manual host adjustment
+        quest.delete()
+        team.refresh_from_db()
+        self.assertEqual(team.score, 0)
+
+    def test_seed_replace_quests_removes_awarded_points(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / 'seed.json'
+            path.write_text(json.dumps(self.SEED), encoding='utf-8')
+            call_command('seed_event', str(path), stdout=StringIO(), stderr=StringIO())
+
+            event = Event.objects.get(slug='deletion-hunt')
+            team = Team.objects.create(event=event, name='Seeded')
+            self.award(team, event.quests.get(title='Keep me'))
+            self.award(team, event.quests.get(title='Drop me'))
+            team.refresh_from_db()
+            self.assertEqual(team.score, 55)
+
+            reduced = dict(self.SEED, quests=[self.SEED['quests'][0]])
+            path.write_text(json.dumps(reduced), encoding='utf-8')
+            call_command('seed_event', str(path), '--replace-quests', stdout=StringIO(), stderr=StringIO())
+
+        self.assertEqual(list(event.quests.values_list('title', flat=True)), ['Keep me'])
+        team.refresh_from_db()
+        self.assertEqual(team.score, 15)

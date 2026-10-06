@@ -7,7 +7,9 @@ Quest.inspired_by, so a client can copy a session straight into a quest.
 """
 
 import hashlib
-from typing import Any, Dict, List
+import ipaddress
+from typing import Any, Dict, List, Optional
+from urllib.parse import urljoin, urlsplit
 
 import requests
 from django.conf import settings
@@ -17,10 +19,41 @@ from django.core.cache import cache
 # without hammering the schedule host.
 SCHEDULE_CACHE_SECONDS = 10 * 60
 SCHEDULE_FETCH_TIMEOUT_SECONDS = 15
+# Redirects are followed by hand so every hop is checked against the host allowlist.
+SCHEDULE_MAX_REDIRECTS = 5
 
 
 class ScheduleFetchError(Exception):
     """Raised when a schedule export cannot be downloaded or parsed."""
+
+
+def schedule_url_error(url: str) -> Optional[str]:
+    """
+    Returns why the server must not fetch `url`, or None when it may.
+
+    Event.schedule_url is client-writable, so only https URLs whose hostname equals, or is a
+    subdomain of, an entry in settings.SCHEDULE_URL_ALLOWED_HOSTS are fetched. IP literals are
+    always refused, which keeps loopback, private and link-local addresses out of reach.
+    """
+    allowed = [h.strip().lower().rstrip('.') for h in settings.SCHEDULE_URL_ALLOWED_HOSTS if h.strip()]
+    try:
+        parts = urlsplit(url or '')
+        host = (parts.hostname or '').rstrip('.')
+    except ValueError:
+        return 'Schedule URL is not a valid URL.'
+    if parts.scheme.lower() != 'https':
+        return 'Schedule URL must use https.'
+    if not host:
+        return 'Schedule URL has no host.'
+    try:
+        ipaddress.ip_address(host)
+        return 'Schedule URL must use a host name, not an IP address.'
+    except ValueError:
+        pass
+    if not any(host == a or host.endswith('.' + a) for a in allowed):
+        listed = ', '.join(allowed) or '(none configured)'
+        return f'Schedule URL host "{host}" is not allowed. Allowed hosts (and their subdomains): {listed}.'
+    return None
 
 
 def _cache_key(url: str) -> str:
@@ -81,20 +114,36 @@ def parse_frab_schedule(data: Dict[str, Any]) -> List[Dict[str, Any]]:
 def fetch_schedule_sessions(url: str) -> List[Dict[str, Any]]:
     """
     Returns the parsed sessions for a schedule export URL, using Django's cache for
-    SCHEDULE_CACHE_SECONDS. Raises ScheduleFetchError on network, HTTP, or parse failures
-    (failures are not cached, so the next request retries).
+    SCHEDULE_CACHE_SECONDS. Raises ScheduleFetchError when the URL (or a redirect target) is not
+    on the host allowlist, and on network, HTTP, or parse failures (failures are not cached, so
+    the next request retries).
     """
+    error = schedule_url_error(url)
+    if error:
+        raise ScheduleFetchError(error)
+
     key = _cache_key(url)
     cached = cache.get(key)
     if cached is not None:
         return cached
 
     try:
-        response = requests.get(
-            url,
-            timeout=SCHEDULE_FETCH_TIMEOUT_SECONDS,
-            headers={'User-Agent': settings.HARVEST_USER_AGENT, 'Accept': 'application/json'},
-        )
+        target = url
+        for _ in range(SCHEDULE_MAX_REDIRECTS + 1):
+            response = requests.get(
+                target,
+                timeout=SCHEDULE_FETCH_TIMEOUT_SECONDS,
+                headers={'User-Agent': settings.HARVEST_USER_AGENT, 'Accept': 'application/json'},
+                allow_redirects=False,
+            )
+            if not 300 <= response.status_code < 400:
+                break
+            target = urljoin(target, response.headers.get('Location') or '')
+            error = schedule_url_error(target)
+            if error:
+                raise ScheduleFetchError(f'Schedule redirect refused: {error}')
+        else:
+            raise ScheduleFetchError('Could not fetch schedule: too many redirects')
         response.raise_for_status()
         data = response.json()
     except (requests.RequestException, ValueError) as exc:

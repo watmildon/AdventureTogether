@@ -14,7 +14,7 @@ from .models import Quest
 
 class QuestValidationAndAPITests(TestCase):
     """
-    Validates Quest criteria matching algorithms, geometry validation against event bounds, and REST endpoints.
+    Validates Quest geometry validation against event bounds and REST endpoints.
     """
 
     def setUp(self):
@@ -48,31 +48,6 @@ class QuestValidationAndAPITests(TestCase):
             },
             points_reward=20
         )
-
-    def test_osm_tag_matching_positive(self):
-        """Element matching required tags succeeds."""
-        tags = {
-            "amenity": "restaurant",
-            "name": "Super Duper Burgers",
-            "opening_hours": "Mo-Su 11:00-22:00"
-        }
-        self.assertTrue(self.quest.matches_osm_tags(tags))
-
-    def test_osm_tag_matching_missing_key(self):
-        """Element missing opening_hours fails."""
-        tags = {
-            "amenity": "restaurant",
-            "name": "Super Duper Burgers"
-        }
-        self.assertFalse(self.quest.matches_osm_tags(tags))
-
-    def test_osm_tag_matching_wrong_amenity(self):
-        """Element with non-matching amenity fails."""
-        tags = {
-            "amenity": "cafe",
-            "opening_hours": "Mo-Su 08:00-18:00"
-        }
-        self.assertFalse(self.quest.matches_osm_tags(tags))
 
     def test_create_quest_within_event_bounds_succeeds(self):
         """Creating quest with target geometry inside bounding polygon succeeds."""

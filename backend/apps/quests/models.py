@@ -118,30 +118,5 @@ class Quest(models.Model):
             return False
         return True
 
-    def matches_osm_tags(self, tags: dict) -> bool:
-        """
-        Validates if an OpenStreetMap element's tags satisfy this quest's tag criteria.
-        Wildcard '*' matches any non-empty value.
-        """
-        if self.criteria_type != 'osm_tags' or not isinstance(tags, dict):
-            return False
-
-        required_tags = self.validation_rules.get('required_tags', {})
-        if not required_tags:
-            return True
-
-        for key, expected_val in required_tags.items():
-            if key not in tags:
-                return False
-            if expected_val == '*':
-                continue
-            # "restaurant|cafe" accepts any of the listed values (same convention as the
-            # Overpass harvester's anchored regex alternation).
-            accepted = {v.strip().lower() for v in str(expected_val).split('|') if v.strip()}
-            if str(tags[key]).lower() not in accepted:
-                return False
-
-        return True
-
     def __str__(self):
         return f"{self.title} ({self.get_criteria_type_display()}) - Event: {self.event.title}"

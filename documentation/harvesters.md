@@ -168,6 +168,8 @@ Without a token GitHub allows 10 search requests a minute. The harvester logs th
 
 Submissions with no matching member are still stored (`team = null`). If the member adds their username later, the next harvest fills the team in.
 
+Within one run each `(platform, author)` pair is matched once and the result (including "no team") is reused for that author's other contributions; a submission that already has a team is not matched again.
+
 ---
 
 ## 7. Running harvests

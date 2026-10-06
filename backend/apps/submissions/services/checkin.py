@@ -108,6 +108,12 @@ def _parse(value) -> datetime | None:
 
 
 def _resolve_team(ping):
+    """
+    The participant's team. LocationPingIngestSerializer already stores it on the ping, so the
+    membership query only runs for pings saved without one (e.g. created outside the ingest path).
+    """
+    if ping.team_id is not None:
+        return ping.team
     membership = TeamMembership.objects.filter(
         team__event_id=ping.event_id,
         user_identifier=ping.user_identifier,
@@ -238,13 +244,25 @@ def ping_checkin_summary(submission: Submission) -> dict:
 
 
 def participant_checkins(event_id, user_identifier: str) -> list[Submission]:
-    """A participant's check-in submissions for an event, newest quest activity first."""
+    """
+    A participant's check-in submissions for an event, most recently in range first.
+
+    Ordered by diff_payload['last_seen'] (updated on every in-range ping), falling back to
+    contributed_at, which only records the first check-in. Sorted in Python because last_seen
+    lives in JSON; a participant has at most one submission per check-in quest.
+    """
     quests = Quest.objects.filter(event_id=event_id, criteria_type='location_checkin')
     external_ids = [checkin_external_id(q.id, user_identifier) for q in quests]
     if not external_ids:
         return []
-    return list(
+    submissions = list(
         Submission.objects.filter(platform=PLATFORM, event_id=event_id, external_id__in=external_ids)
         .select_related('quest')
-        .order_by('-contributed_at')
     )
+
+    def last_activity(submission: Submission) -> float:
+        seen = _parse((submission.diff_payload or {}).get('last_seen')) or submission.contributed_at
+        return seen.timestamp() if seen else float('-inf')
+
+    submissions.sort(key=last_activity, reverse=True)
+    return submissions

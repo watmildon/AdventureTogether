@@ -9,6 +9,7 @@
 import { computed } from 'vue'
 import type { QuestData, QuestProgressData } from '../api'
 import { questTypeFor, formatSessionLine, formatQuestWindow } from '../composables/useQuestTypes'
+import type { CheckinStates } from '../composables/checkinState'
 
 const props = withDefaults(defineProps<{
   quests: QuestData[]
@@ -16,8 +17,8 @@ const props = withDefaults(defineProps<{
   progressByQuest?: Map<number, QuestProgressData>
   /** True when the participant has a team, so missing progress means 0 rather than unknown. */
   hasTeam?: boolean
-  /** Check-in state per quest id from pings / the check-ins endpoint. */
-  checkins?: Record<number, 'in_range' | 'verified'>
+  /** Check-in state per quest id from pings / the check-ins endpoint (see checkinState.ts). */
+  checkins?: CheckinStates
 }>(), {
   progressByQuest: () => new Map(),
   hasTeam: false,
@@ -66,6 +67,7 @@ const cards = computed(() =>
           <span v-if="card.complete" class="state state-done">✓ Done</span>
           <span v-else-if="card.checkin === 'verified'" class="state state-done">✓ Checked in</span>
           <span v-else-if="card.checkin === 'in_range'" class="state state-here">📍 You're here</span>
+          <span v-else-if="card.checkin === 'dwelling'" class="state state-here">📍 You're here, stay a few minutes</span>
         </div>
 
         <h4 class="quest-title">{{ card.quest.title }}</h4>

@@ -120,16 +120,21 @@ export interface PingCheckin {
 }
 
 /**
- * A participant's recorded check-in. The endpoint returns check-in submissions, so only
- * `quest` is relied on; the other fields are read when present.
+ * A participant's recorded check-in, from GET /locations/checkins/. Only `status === 'verified'`
+ * counts as checked in: 'pending' is still dwelling, 'revoked' was un-verified by a host.
  */
 export interface CheckinData {
-  id?: number
   quest: number | null
   quest_title?: string | null
-  is_verified?: boolean
-  contributed_at?: string | null
-  created_at?: string
+  status: 'verified' | 'pending' | 'revoked'
+  first_seen?: string | null
+  last_seen?: string | null
+  ping_count?: number | null
+  distance_m?: number | null
+  radius_m?: number | null
+  /** Dwell time the quest required when the check-in was recorded (0 = immediately). */
+  min_minutes?: number | null
+  verified_at?: string | null
 }
 
 /** Error carrying the HTTP status so callers can tell e.g. 400 from 502. */
@@ -275,8 +280,10 @@ export const api = {
   },
 
   /**
-   * Joins a team by code. Usernames are optional; blank ones are left out so a
-   * re-join does not clear values stored earlier (the API clears on empty string).
+   * Joins a team by code. All three usernames are always sent, trimmed, with '' for blank:
+   * the API clears a username on empty string and keeps it only when the key is omitted,
+   * so omitting blanks would make a cleared username impossible to remove server-side.
+   * JoinTeamView prefills the fields from localStorage, so unchanged values are resent as-is.
    */
   async joinTeam(
     joinCode: string,
@@ -284,9 +291,10 @@ export const api = {
     displayName: string,
     usernames: PlatformUsernames = {}
   ): Promise<{ message: string; team: TeamData; membership: TeamMembershipData }> {
-    const optional: PlatformUsernames = {}
-    for (const [key, value] of Object.entries(usernames) as [keyof PlatformUsernames, string | undefined][]) {
-      if (value && value.trim()) optional[key] = value.trim()
+    const usernameFields: Required<PlatformUsernames> = {
+      osm_username: (usernames.osm_username ?? '').trim(),
+      wikimedia_username: (usernames.wikimedia_username ?? '').trim(),
+      github_username: (usernames.github_username ?? '').trim()
     }
     const res = await fetch(`${API_BASE}/teams/join/`, {
       method: 'POST',
@@ -295,7 +303,7 @@ export const api = {
         join_code: joinCode,
         user_identifier: userIdentifier,
         display_name: displayName,
-        ...optional
+        ...usernameFields
       })
     })
     if (!res.ok) {

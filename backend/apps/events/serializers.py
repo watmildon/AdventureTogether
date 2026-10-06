@@ -5,6 +5,7 @@ Serializers for Event models.
 from rest_framework import serializers
 from rest_framework_gis.serializers import GeoFeatureModelSerializer
 from .models import Event
+from .services.schedule import schedule_url_error
 
 
 class EventSerializer(serializers.ModelSerializer):
@@ -31,6 +32,17 @@ class EventSerializer(serializers.ModelSerializer):
             # The model generates a slug from the title on save, so clients may omit it.
             'slug': {'required': False, 'allow_blank': True},
         }
+
+    def validate_schedule_url(self, value):
+        """
+        Rejects schedule URLs the server would refuse to fetch (non-https, or a host outside
+        settings.SCHEDULE_URL_ALLOWED_HOSTS). Blank clears the schedule.
+        """
+        if value:
+            error = schedule_url_error(value)
+            if error:
+                raise serializers.ValidationError(error)
+        return value
 
     def validate(self, attrs):
         """

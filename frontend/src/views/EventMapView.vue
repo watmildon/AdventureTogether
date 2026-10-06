@@ -5,7 +5,8 @@ import L from 'leaflet'
 import { api, type EventData, type QuestData, type LocationPingData, type PingCheckin } from '../api'
 import { useGeolocation, clearSimulatedPosition, type VisibilityTier } from '../composables/useGeolocation'
 import { useDeepLinks } from '../composables/useDeepLinks'
-import { useQuestProgress, readStoredTeamId } from '../composables/useQuestProgress'
+import { useQuestProgress, readStoredTeam } from '../composables/useQuestProgress'
+import { mergePingCheckins, mergeRecordedCheckins, questMinMinutes, type CheckinStates } from '../composables/checkinState'
 import { createQuestLayer, questPopupHtml, focusQuestLayer } from '../composables/questLayers'
 import QuestPanel from '../components/QuestPanel.vue'
 import LeaderboardList from '../components/LeaderboardList.vue'
@@ -43,9 +44,12 @@ const stopSimulatingGps = () => {
 
 const { getDeepLinks, launchDeepLink } = useDeepLinks()
 
-// Team progress and leaderboard (polled every 30 s). The team id comes from JoinTeamView's
-// localStorage record, or later from the ping response if the participant joined elsewhere.
-const teamId = ref<number | null>(readStoredTeamId(eventId))
+// Team progress and leaderboard (polled every 30 s). The team comes from JoinTeamView's
+// event-scoped localStorage record, or from the ping response (the server's membership for
+// this event). The global team_id/team_name keys are never read: they may be another event's.
+const storedTeam = readStoredTeam(eventId)
+const teamId = ref<number | null>(storedTeam?.id ?? null)
+const pingTeamName = ref<string | null>(null)
 const {
   progressByQuest,
   leaderboard,
@@ -56,7 +60,10 @@ const {
 } = useQuestProgress(eventId, teamId)
 
 const teamName = computed(() =>
-  leaderboard.value.find((t) => t.id === teamId.value)?.name || localStorage.getItem('team_name') || null
+  leaderboard.value.find((t) => t.id === teamId.value)?.name ||
+  pingTeamName.value ||
+  (storedTeam?.id === teamId.value ? storedTeam?.name : null) ||
+  null
 )
 
 /** Participants hide inactive quests; hosts still see them in the builder. */
@@ -65,8 +72,8 @@ const visibleQuests = computed(() => quests.value.filter((q) => q.is_active !== 
 /** Other participants only: the server also returns our own latest ping. */
 const teammates = computed(() => activeLocations.value.filter((loc) => loc.user_identifier !== userIdentifier))
 
-// Check-in state per quest id. 'verified' is sticky; 'in_range' reflects the latest ping.
-const checkins = ref<Record<number, 'in_range' | 'verified'>>({})
+// Check-in state per quest id. 'verified' is sticky; 'in_range' / 'dwelling' reflect the latest ping.
+const checkins = ref<CheckinStates>({})
 const checkinToast = ref<{ text: string; questId: number } | null>(null)
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -255,11 +262,15 @@ const updateSelfMarker = () => {
 
 watch(coords, updateSelfMarker)
 
-const showCheckinToast = (questId: number, title: string) => {
-  checkinToast.value = { text: `You're at ${title}`, questId }
+const showCheckinToast = (questId: number, title: string, dwellMinutes = 0) => {
+  const text = dwellMinutes > 0 ? `You're at ${title}. Stay ${dwellMinutes} min to check in` : `You're at ${title}`
+  checkinToast.value = { text, questId }
   if (toastTimer) clearTimeout(toastTimer)
   toastTimer = setTimeout(() => (checkinToast.value = null), 6000)
 }
+
+/** Dwell time a quest needs before a check-in is verified (0 = immediately). */
+const minMinutesFor = (questId: number) => questMinMinutes(quests.value.find((q) => q.id === questId))
 
 /**
  * Applies the `checkins` list from a ping response. Toasts the first time we see the
@@ -267,48 +278,33 @@ const showCheckinToast = (questId: number, title: string) => {
  */
 const applyPingCheckins = (list: PingCheckin[] | undefined) => {
   if (!Array.isArray(list)) return
-  const next: Record<number, 'in_range' | 'verified'> = {}
-  // Verified check-ins stay; in-range ones are replaced by what this ping reports
-  for (const [id, status] of Object.entries(checkins.value)) {
-    if (status === 'verified') next[Number(id)] = status
+  const { next, newlyVerified, firstSeen } = mergePingCheckins(checkins.value, list, minMinutesFor)
+  for (const checkin of firstSeen) {
+    const title = checkin.quest_title || quests.value.find((q) => q.id === checkin.quest)?.title || 'a quest'
+    showCheckinToast(checkin.quest, title, next[checkin.quest] === 'dwelling' ? minMinutesFor(checkin.quest) : 0)
   }
-
-  let newlyVerified = false
-  for (const checkin of list) {
-    if (!checkin || typeof checkin.quest !== 'number') continue
-    if (checkin.status !== 'in_range' && checkin.status !== 'verified') continue
-    const previous = checkins.value[checkin.quest]
-    if (previous === 'verified') continue
-
-    next[checkin.quest] = checkin.status
-    if (checkin.status === 'verified') newlyVerified = true
-    if (!previous) {
-      const title = checkin.quest_title || quests.value.find((q) => q.id === checkin.quest)?.title || 'a quest'
-      showCheckinToast(checkin.quest, title)
-    }
-  }
-
   checkins.value = next
   if (newlyVerified) refreshProgress()
 }
 
 watch(lastPing, (ping) => {
-  if (!ping) return
+  if (!ping || (ping.event != null && String(ping.event) !== String(eventId))) return
   applyPingCheckins(ping.checkins)
-  // The server resolves our team from the membership table; use it if localStorage had none
-  if (!teamId.value && ping.team) teamId.value = ping.team
+  // The server resolves our team from its membership table for this event: it is authoritative
+  if (ping.team && ping.team !== teamId.value) {
+    teamId.value = ping.team
+    pingTeamName.value = ping.team_name ?? null
+  }
 })
 
-/** Marks quests the participant already checked in to (e.g. before a reload). */
+/**
+ * Restores check-in state after a reload. Only verified check-ins count as done; pending
+ * ones show as in range / dwelling until the next ping says otherwise; revoked ones show nothing.
+ */
 const loadCheckins = async () => {
   try {
     const recorded = await api.getCheckins(eventId, userIdentifier)
-    const next = { ...checkins.value }
-    recorded.forEach((c) => {
-      // A revoked check-in (is_verified false) does not count
-      if (typeof c?.quest === 'number' && c.is_verified !== false) next[c.quest] = 'verified'
-    })
-    checkins.value = next
+    checkins.value = mergeRecordedCheckins(checkins.value, recorded, minMinutesFor)
   } catch {
     // Check-ins are optional; older servers do not have the endpoint
   }

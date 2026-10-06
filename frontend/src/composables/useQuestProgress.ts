@@ -1,7 +1,8 @@
 /**
  * Team progress and leaderboard state for an event, refreshed on a polling interval.
  *
- * Progress needs the participant's team id, which JoinTeamView stores in localStorage.
+ * Progress needs the participant's team id for this event, which JoinTeamView stores in
+ * localStorage under an event-scoped key (or the ping response reports).
  * Without a team the leaderboard still loads and quests show only their targets.
  */
 
@@ -12,21 +13,27 @@ import { api, type LeaderboardEntry, type QuestProgressData } from '../api'
 export const PROGRESS_POLL_MS = 30000
 
 /**
- * The participant's team for this event. Prefers the event-scoped record JoinTeamView
- * writes (`team_for_event_<id>`) and falls back to the global `team_id` key.
+ * The participant's team for this event, from the event-scoped record JoinTeamView writes
+ * (`team_for_event_<id>`). The global `team_id` / `team_name` keys are deliberately not read:
+ * they hold whichever team was joined last, possibly for another event.
  */
-export function readStoredTeamId(eventId: number | string): number | null {
+export function readStoredTeam(eventId: number | string): { id: number; name: string | null } | null {
   try {
     const scoped = localStorage.getItem(`team_for_event_${eventId}`)
-    if (scoped) {
-      const team = JSON.parse(scoped)
-      if (Number.isFinite(Number(team?.id))) return Number(team.id)
-    }
+    if (!scoped) return null
+    const team = JSON.parse(scoped)
+    const id = Number(team?.id)
+    if (!Number.isFinite(id) || id <= 0) return null
+    return { id, name: typeof team?.name === 'string' ? team.name : null }
   } catch {
-    // Corrupt value: fall through to the global key
+    // Corrupt value: treat as no team; the ping response can still supply one
+    return null
   }
-  const global = Number(localStorage.getItem('team_id'))
-  return Number.isFinite(global) && global > 0 ? global : null
+}
+
+/** Shorthand for `readStoredTeam(eventId)?.id`. */
+export function readStoredTeamId(eventId: number | string): number | null {
+  return readStoredTeam(eventId)?.id ?? null
 }
 
 export function useQuestProgress(eventId: number | string, teamId: Ref<number | null>) {

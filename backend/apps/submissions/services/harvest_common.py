@@ -7,7 +7,6 @@ exception messages, so errors are only ever reported by exception class name and
 """
 
 import logging
-import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone as dt_timezone
 from typing import Any, Dict, List, Optional
@@ -17,6 +16,7 @@ from django.conf import settings
 from django.utils.dateparse import parse_datetime
 
 from apps.events.models import Event
+from apps.locations.geo import haversine_m
 from apps.quests.models import Quest
 from apps.submissions.models import Submission
 from .tag_matcher import match_author_to_team
@@ -111,15 +111,6 @@ def counts_for_quest(event: Event, quest: Quest, dt: Optional[datetime]) -> bool
     return quest.is_open_at(dt)
 
 
-def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    r = 6371008.8
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dp = p2 - p1
-    dl = math.radians(lon2 - lon1)
-    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
-    return 2 * r * math.asin(math.sqrt(a))
-
-
 def quest_radius_m(quest: Quest, default: int = 300) -> float:
     try:
         return float((quest.validation_rules or {}).get('radius_m', default))
@@ -151,8 +142,19 @@ class HarvestContext:
     would_submit: List[Dict[str, Any]] = field(default_factory=list)
     # Non-error conditions worth surfacing to the host (e.g. a platform not configured).
     warnings: List[str] = field(default_factory=list)
-    # Per-run caches shared by harvesters (e.g. changeset metadata keyed by (api_base, id)).
+    # Per-run caches shared by harvesters (e.g. changeset metadata keyed by (api_base, id), and
+    # author-to-team matches keyed by ('team-match', platform, lowercased username)).
     cache: Dict[Any, Any] = field(default_factory=dict)
+
+    def team_for_author(self, platform: str, author_username: str):
+        """
+        match_author_to_team, memoised for the run: one author usually has many contributions,
+        and membership does not change meaningfully within a single run. Misses are cached too.
+        """
+        key = ('team-match', platform, (author_username or '').lower())
+        if key not in self.cache:
+            self.cache[key] = match_author_to_team(self.event, author_username, platform)
+        return self.cache[key]
 
     def platform(self, name: str) -> Dict[str, int]:
         if name not in self.stats:
@@ -183,9 +185,13 @@ def upsert_submission(ctx: HarvestContext, *, platform: str, quest: Quest, exter
     stats['harvested'] += 1
     diff_payload = diff_payload or {}
     element_count = max(1, int(element_count or 1))
-    team = match_author_to_team(ctx.event, author_username, platform)
 
     existing = Submission.objects.filter(platform=platform, external_id=external_id).first()
+    # A submission that is already credited keeps its team, so only look one up when it can be used.
+    if existing is not None and existing.team_id is not None:
+        team = None
+    else:
+        team = ctx.team_for_author(platform, author_username)
 
     if existing is None:
         stats['created'] += 1

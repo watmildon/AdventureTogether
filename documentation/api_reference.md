@@ -58,7 +58,7 @@ Creates a new scavenger hunt event.
 }
 ```
 
-`schedule_url` is optional: a pretalx/frab-compatible schedule JSON export used by the sessions endpoint below.
+`schedule_url` is optional: a pretalx/frab-compatible schedule JSON export used by the sessions endpoint below. Because the server fetches it, it must be an `https` URL whose host equals, or is a subdomain of, an entry in `SCHEDULE_URL_ALLOWED_HOSTS` (default `talks.osgeo.org,pretalx.com`); IP addresses are refused. Anything else is rejected with `400` (`{"schedule_url": ["<reason>"]}`). An empty string clears it.
 
 ### `GET /api/events/<id>/geojson/`
 Returns the event bounding perimeter formatted as a GeoJSON Feature.
@@ -95,7 +95,9 @@ Fetches the event's `schedule_url` (pretalx/frab JSON, `schedule.conference.days
 ]
 ```
 
-**Errors**: `400` if the event has no `schedule_url`; `502` if the schedule cannot be fetched or is not frab-shaped.
+Redirects are followed only while every hop stays on an allowed `https` host.
+
+**Errors**: `400` if the event has no `schedule_url` or its host is not allowed (e.g. stored before the allowlist); `502` if the schedule cannot be fetched (including a redirect to a host that is not allowed) or is not frab-shaped.
 
 ---
 
@@ -208,6 +210,9 @@ Creates a new quest. Rejects target geometries outside the event's bounding peri
 - `window_start` / `window_end` (optional, nullable): a quest-specific time window inside the event window, e.g. a Monday-evening-only check-in. `window_end` must not precede `window_start`.
 - `target_count` (read-only in responses): number of verified contributions needed to complete the quest, taken from `validation_rules.target_count` (minimum and default 1).
 
+### `DELETE /api/quests/<id>/`
+Deletes the quest and its team progress rows. Teams that had been awarded the quest's points lose them again (score floored at 0); the quest's submissions are kept with `quest = null`.
+
 ---
 
 ## 5. Location Sharing API (`/api/locations/`)
@@ -229,7 +234,7 @@ Ingests an ephemeral foreground location ping.
 ```
 
 ### `GET /api/locations/checkins/?event=<event_id>&user_identifier=<user_id>`
-Lists the participant's GPS check-in submissions for the event: `[{quest, quest_title, status: "verified"|"pending"|"revoked", first_seen, last_seen, ping_count, distance_m, radius_m, min_minutes, verified_at}]`. Both parameters are required (400 otherwise). The ping endpoint above also returns a `checkins` list (`[{quest, quest_title, status: "in_range"|"verified", distance_m}]`) for the quests the ping was in range of. See `documentation/quest_types.md`.
+Lists the participant's GPS check-in submissions for the event: `[{quest, quest_title, status: "verified"|"pending"|"revoked", first_seen, last_seen, ping_count, distance_m, radius_m, min_minutes, verified_at}]`. Most recently seen first (by `last_seen`). Both parameters are required (400 otherwise). The ping endpoint above also returns a `checkins` list (`[{quest, quest_title, status: "in_range"|"verified", distance_m}]`) for the quests the ping was in range of. See `documentation/quest_types.md`.
 
 ### `GET /api/locations/active/?event=<event_id>&user_identifier=<user_id>`
 Returns active participant locations within the **20-minute decay window**, filtered according to privacy matrix permissions (`nobody`, `team`, `quest`).

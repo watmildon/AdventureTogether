@@ -325,7 +325,8 @@ class Command(BaseCommand):
             keep = {q['title'] for q in quest_values}
             for title, quest in existing_quests.items():
                 if title not in keep:
-                    # Submissions keep their row (quest FK is SET_NULL); QuestProgress rows cascade.
+                    # Submissions keep their row (quest FK is SET_NULL); QuestProgress rows cascade, and
+                    # the pre_delete receiver in apps.submissions.signals revokes awarded points.
                     quest.delete()
                     summary['quests']['deleted'].append(title)
 
