@@ -225,7 +225,7 @@ Creates a new quest. Rejects target geometries outside the event's bounding peri
 ```
 
 **Fields**:
-- `criteria_type`: one of `osm_tags`, `wikimedia_commons`, `wikidata_entry`, `location_checkin`, `osm_notes`, `ohm_feature`, `wikidata_statement`, `oss_contribution`, `street_imagery`.
+- `criteria_type`: one of `osm_tags`, `wikimedia_commons`, `wikidata_entry`, `location_checkin`, `osm_notes`, `ohm_feature`, `wikidata_statement`, `oss_contribution`, `street_imagery`, `mangrove_review`, `maproulette_task`.
 - `inspired_by` (optional object, default `{}`): the conference session behind the quest, in the shape returned by `GET /api/events/<id>/sessions/` (minus `type`). Must be a JSON object.
 - `window_start` / `window_end` (optional, nullable): a quest-specific time window inside the event window, e.g. a Monday-evening-only check-in. `window_end` must not precede `window_start`.
 - `target_count` (read-only in responses): number of verified contributions needed to complete the quest, taken from `validation_rules.target_count` (minimum and default 1).
@@ -285,7 +285,7 @@ Returns active participant locations within the **20-minute decay window**, filt
 ### `GET /api/submissions/?event=<event_id>&is_verified=<bool>&quest=<quest_id>`
 Lists submissions harvested from OSM, Wikimedia Commons, or Wikidata.
 
-`platform` is one of `osm`, `commons`, `wikidata`, `ohm`, `osm_notes`, `checkin`, `github`, `panoramax` (`platform_display` gives the human-readable name). Each submission also carries:
+`platform` is one of `osm`, `commons`, `wikidata`, `ohm`, `osm_notes`, `checkin`, `github`, `panoramax`, `mangrove`, `maproulette` (`platform_display` gives the human-readable name). Each submission also carries:
 - `element_count` (default 1): how many distinct contributions it represents toward a counted quest, e.g. 3 cafes given `opening_hours` in one changeset.
 - `contributed_at` (nullable): when the contribution happened on the external platform; `created_at` is when it was harvested.
 - `extracted_value` (nullable float): the value read for a value-scoring quest, e.g. a sidewalk stamp's year. On an element-based submission (OSM/OHM) it is the extreme of the per-element values, which are stored in `diff_payload.extracted_values`. It can be set when creating a submission through the API.
@@ -305,7 +305,7 @@ Host endpoint to verify (or, with `"is_verified": false`, un-verify) a submissio
 `extracted_value` is optional. When given, it replaces the submission's harvested value with the host's correction (`null` clears it). Later harvests keep it. Leave the key out to keep the current value.
 
 ### `POST /api/submissions/trigger_harvest/`
-Runs a harvest synchronously for the event and returns `{"message", "stats"}`. `stats` holds one `{harvested, created, updated, matched, errors}` entry per platform that ran (`osm`, `ohm`, `osm_notes`, `commons`, `wikidata`, `github`), plus `summary` (totals), `warnings`, `event`, `found` and `dry_run`. Returns 400 if `event` is missing or not an integer, and 404 (with `stats`) if the event does not exist or is inactive. Only the platforms the event's active quests need are contacted. See `documentation/harvesters.md`.
+Runs a harvest synchronously for the event and returns `{"message", "stats"}`. `stats` holds one `{harvested, created, updated, matched, errors}` entry per platform that ran (`osm`, `ohm`, `osm_notes`, `commons`, `wikidata`, `github`, `mangrove`, `maproulette`; `osm`/`ohm` add `history_lookups` and `maproulette` adds `detail_lookups`), plus `summary` (totals), `warnings`, `event`, `found` and `dry_run`. Returns 400 if `event` is missing or not an integer, and 404 (with `stats`) if the event does not exist or is inactive. Only the platforms the event's active quests need are contacted. See `documentation/harvesters.md`.
 
 **Payload**:
 ```json

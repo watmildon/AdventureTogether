@@ -16,7 +16,14 @@ PLATFORM_USERNAME_FIELDS = {
     'commons': 'wikimedia_username',
     'wikidata': 'wikimedia_username',
     'github': 'github_username',
+    # MapRoulette users sign in with OpenStreetMap, so their OSM name is what we learn.
+    'maproulette': 'osm_username',
 }
+
+# Platforms without a username field on TeamMembership, where the contributor picks a free-form
+# name (a Mangrove review's nickname). Members are told to use their display name there, so it
+# is tried first.
+DISPLAY_NAME_FIRST_PLATFORMS = {'mangrove'}
 
 
 def _normalize_hashtag(hashtag: str) -> str:
@@ -60,8 +67,10 @@ def match_author_to_team(event: Event, author_username: str, platform: Optional[
 
     The platform-specific username a member shared when joining (osm_username for OSM, OSM Notes
     and OpenHistoricalMap; wikimedia_username for Commons and Wikidata; github_username for
-    GitHub) is checked first, then the member's user_identifier and display_name. All
-    comparisons are case-insensitive.
+    GitHub; osm_username also for MapRoulette) is checked first, then the member's
+    user_identifier and display_name. For Mangrove, where the author is a free-form review
+    nickname, display_name is checked first and then user_identifier. All comparisons are
+    case-insensitive.
     """
     if not author_username:
         return None
@@ -72,8 +81,12 @@ def match_author_to_team(event: Event, author_username: str, platform: Optional[
     username_field = PLATFORM_USERNAME_FIELDS.get(platform or '')
     if username_field:
         candidates.append({f'{username_field}__iexact': author_username})
-    candidates.append({'user_identifier__iexact': author_username})
-    candidates.append({'display_name__iexact': author_username})
+    if platform in DISPLAY_NAME_FIRST_PLATFORMS:
+        candidates.append({'display_name__iexact': author_username})
+        candidates.append({'user_identifier__iexact': author_username})
+    else:
+        candidates.append({'user_identifier__iexact': author_username})
+        candidates.append({'display_name__iexact': author_username})
 
     for lookup in candidates:
         membership = memberships.filter(**lookup).order_by('joined_at', 'id').first()

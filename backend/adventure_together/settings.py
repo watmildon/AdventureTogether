@@ -198,6 +198,8 @@ OHM_OVERPASS_URL = os.environ.get(
 WIKIMEDIA_COMMONS_API = os.environ.get('WIKIMEDIA_COMMONS_API', 'https://commons.wikimedia.org/w/api.php')
 WIKIDATA_API = os.environ.get('WIKIDATA_API', 'https://www.wikidata.org/w/api.php')
 PANORAMAX_API = os.environ.get('PANORAMAX_API', 'https://api.panoramax.xyz/api')
+MANGROVE_API = os.environ.get('MANGROVE_API', 'https://api.mangrove.reviews')
+MAPROULETTE_API = os.environ.get('MAPROULETTE_API', 'https://maproulette.org/api/v2')
 # Identifies us to the external APIs (OSM and Wikimedia policies require a descriptive UA).
 HARVEST_USER_AGENT = os.environ.get(
     'HARVEST_USER_AGENT',

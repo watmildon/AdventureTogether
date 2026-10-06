@@ -68,9 +68,9 @@ describe('HostQuestBuilderView', () => {
     api.createQuest.mockImplementation(async (payload: any) => ({ id: 99, is_active: true, ...payload }))
   })
 
-  it('offers all nine quest types', async () => {
+  it('offers all eleven quest types', async () => {
     const wrapper = await mountBuilder()
-    expect(wrapper.findAll('#criteriaType option')).toHaveLength(9)
+    expect(wrapper.findAll('#criteriaType option')).toHaveLength(11)
   })
 
   it('composes osm_tags rules from tag rows and target count', async () => {
@@ -175,6 +175,39 @@ describe('HostQuestBuilderView', () => {
       target_count: 2
     })
     expect(api.createQuest.mock.calls[0][0].inspired_by).toEqual({})
+  })
+
+  it('composes mangrove_review and maproulette_task rules', async () => {
+    const wrapper = await mountBuilder()
+    await wrapper.find('#questTitle').setValue('Rate it on Mangrove')
+    await wrapper.find('#questDesc').setValue('Review a cafe.')
+    await wrapper.find('#criteriaType').setValue('mangrove_review')
+    await wrapper.find('#minOpinionChars').setValue(40)
+    await wrapper.find('#targetCount').setValue(2)
+    await wrapper.find('.btn-primary.btn-block').trigger('click')
+    await flushPromises()
+    expect(api.createQuest.mock.calls[0][0].validation_rules).toEqual({
+      target_count: 2,
+      require_hashtag: true,
+      min_opinion_chars: 40
+    })
+
+    await wrapper.find('#questTitle').setValue('Clear a MapRoulette task')
+    await wrapper.find('#questDesc').setValue('Fix tasks downtown.')
+    await wrapper.find('#criteriaType').setValue('maproulette_task')
+    await wrapper.find('#challengeIds').setValue('56424, nope')
+    await wrapper.find('.btn-primary.btn-block').trigger('click')
+    expect(wrapper.text()).toContain('Challenge ids are numbers')
+    await wrapper.find('#challengeIds').setValue('56424')
+    await wrapper.find('#targetCount').setValue(3)
+    await wrapper.find('.btn-primary.btn-block').trigger('click')
+    await flushPromises()
+    expect(api.createQuest.mock.calls.at(-1)[0].validation_rules).toEqual({
+      target_count: 3,
+      statuses: [1, 5],
+      require_hashtag: false,
+      challenge_ids: [56424]
+    })
   })
 
   it('saves street_imagery as inactive', async () => {

@@ -18,11 +18,12 @@ Teams are credited through the platform usernames members give when joining (`PO
 
 | Platform | Member field used |
 |---|---|
-| OpenStreetMap, OSM Notes, OpenHistoricalMap | `osm_username` |
+| OpenStreetMap, OSM Notes, OpenHistoricalMap, MapRoulette | `osm_username` |
 | Wikimedia Commons, Wikidata | `wikimedia_username` |
 | GitHub | `github_username` |
+| Mangrove Reviews | `display_name` (the review's nickname) |
 
-If the platform username doesn't match a member, the harvester falls back to `user_identifier` and then `display_name`. All comparisons ignore case.
+If the platform username doesn't match a member, the harvester falls back to `user_identifier` and then `display_name`. Mangrove has no username field, so its nickname is compared with `display_name` first and then `user_identifier`. All comparisons ignore case.
 
 ## Summary
 
@@ -35,6 +36,8 @@ If the platform username doesn't match a member, the harvester falls back to `us
 | `wikidata_entry` | Any Wikidata edit with the hashtag in its summary | `wikidata` | `wikimedia_username` | Harvested |
 | `wikidata_statement` | Edit to one named item, with the hashtag, touching given properties | `wikidata` | `wikimedia_username` | Harvested |
 | `oss_contribution` | GitHub pull request or issue with the hashtag | `github` | `github_username` | Harvested |
+| `mangrove_review` | Mangrove review of a place in the area, with the hashtag | `mangrove` | review nickname = `display_name` | Harvested |
+| `maproulette_task` | MapRoulette task in the area fixed during the event | `maproulette` | `osm_username` | Harvested |
 | `location_checkin` | Participant's location pings near the target | `checkin` | the pinging member | Owned by the GPS check-in feature |
 | `street_imagery` | Panoramax street-level photos in the area | `panoramax` | n/a | Not implemented (stretch) |
 
@@ -260,6 +263,64 @@ Set `GITHUB_TOKEN` in the deployment environment: without it GitHub allows only 
   "criteria_type": "oss_contribution",
   "validation_rules": {"kinds": ["pr", "issue"], "allowed_owners": ["OSGeo", "qgis", "grass"], "target_count": 1},
   "points_reward": 50
+}
+```
+
+---
+
+## `mangrove_review`: Mangrove place review
+
+Credits a team for reviewing a place in the quest area on [Mangrove](https://mangrove.reviews), an open dataset of reviews that needs no account.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `target_count` | int | 1 | Reviews needed. |
+| `require_hashtag` | bool | `true` | The review text must contain the event hashtag. |
+| `min_opinion_chars` | int | 0 | Minimum length of the review text, to discourage one-word reviews. |
+| `min_rating` | int (0-100) | none | If set, only reviews rated at least this count. |
+| `radius_m` | number | 300 | When `target_geometry` is a Point: how close the reviewed place must be. |
+
+**Evidence.** One submission per (review, quest), `external_id` `{signature}/q{quest}`, linked to the review on mangrove.reviews, with `diff_payload` `{sub, place, rating, opinion, text, nickname, osm_id, client_id, lat, lon}`. The reviewed place must be inside the quest's area and the review written (`iat`) inside the window. The opinion is also stored as `text`, so value scoring's `description` source can read numbers from it.
+
+**Credit.** The review's nickname, matched against members' `display_name` (then `user_identifier`). Mangrove has no accounts, so **tell participants to set their Mangrove nickname to their display name in the hunt**. A review without a nickname is stored as `anonymous key <hash>` and earns nothing until a host assigns it.
+
+```json
+{
+  "title": "Rate it on Mangrove",
+  "description": "Review a cafe or restaurant on mangrove.reviews; nickname = your display name, #FOSS4GNA2026 in the text.",
+  "criteria_type": "mangrove_review",
+  "target_geometry": {"type": "Polygon", "coordinates": [[[-121.496, 38.5775], [-121.488, 38.5775], [-121.488, 38.5825], [-121.496, 38.5825], [-121.496, 38.5775]]]},
+  "validation_rules": {"target_count": 2, "require_hashtag": true, "min_opinion_chars": 40},
+  "points_reward": 20
+}
+```
+
+---
+
+## `maproulette_task`: MapRoulette task fixed
+
+Credits a team for completing [MapRoulette](https://maproulette.org) tasks in the quest area during the event. MapRoulette breaks OSM fixes (missing parking types, bike-rack capacity, restaurant cuisine, ...) into one task per spot; participants log in with their OSM account.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `target_count` | int | 1 | Tasks needed. |
+| `statuses` | list of ints | `[1, 5]` | Task statuses that count: 1 fixed, 2 false positive, 5 already fixed (also 0 created, 3 skipped, 4 deleted, 6 too hard). |
+| `challenge_ids` | list of ints | none | If set, only tasks from these challenges count. |
+| `require_hashtag` | bool | `false` | Require the event hashtag on the task's OSM changeset. MapRoulette writes its own changeset comment and often does not record the changeset, so leave this off unless you have briefed participants. |
+| `radius_m` | number | 300 | When `target_geometry` is a Point: how close the task must be. |
+
+**Evidence.** One submission per (task, quest), `external_id` `{task}/q{quest}`, linked to the task on maproulette.org, `contributed_at` = when it was mapped, with `diff_payload` `{challenge_id, challenge_name, task_title, status, changeset_id, mapped_on, modified, completed_by, attributed_by}`.
+
+**Credit.** The OSM user of the task's changeset when MapRoulette recorded one; otherwise the OSM display name of the MapRoulette user who completed it. Either is matched against `osm_username`. With `require_hashtag: true`, tasks without a known changeset do not count.
+
+```json
+{
+  "title": "Clear a MapRoulette task",
+  "description": "Fix MapRoulette tasks in downtown Sacramento; log in with your OSM account.",
+  "criteria_type": "maproulette_task",
+  "target_geometry": null,
+  "validation_rules": {"target_count": 3, "statuses": [1, 5], "require_hashtag": false},
+  "points_reward": 30
 }
 ```
 

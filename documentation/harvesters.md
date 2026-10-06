@@ -16,6 +16,8 @@ A harvest run takes one event and looks at its **active** quests. For each crite
 | `wikimedia_commons` | `wikimedia_harvester.py` | Commons MediaWiki API | `commons` |
 | `wikidata_entry`, `wikidata_statement` | `wikidata_harvester.py` | Wikidata MediaWiki API | `wikidata` |
 | `oss_contribution` | `github_harvester.py` | GitHub issue search API | `github` |
+| `mangrove_review` | `mangrove_harvester.py` | Mangrove Reviews API (`MANGROVE_API`) | `mangrove` |
+| `maproulette_task` | `maproulette_harvester.py` | MapRoulette API (`MAPROULETTE_API`) + OSM changeset API | `maproulette` |
 | `location_checkin` | not harvested (verified from location pings) | | `checkin` |
 | `street_imagery` | not implemented | | `panoramax` |
 
@@ -24,7 +26,7 @@ All modules live in `backend/apps/submissions/services/`; `harvest_worker.py` di
 For every qualifying contribution a harvester creates one `Submission` per (contribution, quest) with:
 
 - `author_username`: the account on the external platform,
-- `team`: the team of the member who shared that username (see section 6),
+- `team`: the team of the member who shared that username (see section 8),
 - `contributed_at`: when the contribution happened on the platform,
 - `element_count`: how many distinct things it adds toward a counted quest,
 - `diff_payload`: the evidence a host reviews.
@@ -128,7 +130,7 @@ What the harvester learns is stored in `TrackedOsmElement` (one row per quest an
 
 The element qualifies when `created_at_osm` is inside the event window and the quest window, and the creating changeset carries the hashtag (checked with the same cached changeset lookup, and skipped when `require_hashtag` is `false`). Qualifying elements are grouped by creating changeset into one submission each (`{changeset}/q{quest}`), credited to the creator, with `contributed_at` the creation time and `element_count` the number of elements that changeset created. Each element in `diff_payload` carries version 1's `version`, `user` and `timestamp`, plus `current_version`.
 
-So the first run after a participant adds ten hydrants costs nothing extra (they are all at version 1). Each later edit by anyone costs one history call on the next run, and nothing after that until the element changes again. The count is reported as `history_lookups` in the platform's stats (section 7). A failed lookup is counted under `errors`, writes no row, and is retried on the next run.
+So the first run after a participant adds ten hydrants costs nothing extra (they are all at version 1). Each later edit by anyone costs one history call on the next run, and nothing after that until the element changes again. The count is reported as `history_lookups` in the platform's stats (section 9). A failed lookup is counted under `errors`, writes no row, and is retried on the next run.
 
 An element that is deleted after being created no longer appears in Overpass, so it stops counting toward new submissions; credit already harvested is kept.
 
@@ -176,13 +178,60 @@ Without a token GitHub allows 10 search requests a minute. The harvester logs th
 
 ---
 
-## 6. Crediting contributors to teams
+## 6. Mangrove Reviews
+
+[Mangrove](https://mangrove.reviews) is an open dataset of reviews signed with each reviewer's own key; nobody needs an account. One request per run covers every `mangrove_review` quest:
+
+```
+GET {MANGROVE_API}/geo?xmin=<min lon>&ymin=<min lat>&xmax=<max lon>&ymax=<max lat>
+```
+
+The box is the union of the quests' areas: the extent of a Polygon target, a box of `radius_m` around a Point target, or the event perimeter's extent. The response is `{"reviews": [...]}`, each with `signature`, `jwt`, `kid` (the reviewer's public key) and usually `payload`. When `payload` is missing it is read from the JWT's middle segment; the signature is not checked, since we only read what the reviewer published. A review qualifies for a quest when:
+
+- its subject is a place (`geo:lat,lon?q=Name&u=30`, falling back to the `geo.coordinates` the API adds) inside the quest's area;
+- `iat` (unix seconds) is inside the event window and the quest's window;
+- the opinion contains the hashtag (unless `require_hashtag` is false), has at least `min_opinion_chars` characters and, when `min_rating` is set, the rating is at least that.
+
+Each (review, quest) pair is one submission: `external_id` `{signature}/q{quest}` (a signature too long for the column is replaced by its SHA-256), linked to `https://mangrove.reviews/list?signature=...`, with `diff_payload` `{sub, place, rating, opinion, text, nickname, osm_id, client_id, lat, lon}` (`text` repeats the opinion so value scoring's `description` source can read it). The author is the review's `metadata.nickname`; reviews without one are attributed to `anonymous key <first 12 hex of sha256(kid)>`. See section 8 for how nicknames are matched.
+
+---
+
+## 7. MapRoulette
+
+[MapRoulette](https://maproulette.org) serves challenges: lists of small OSM fixes, one task per spot. MapRoulette accounts are OSM logins. For all `maproulette_task` quests together the harvester lists the tasks in the union of their areas' boxes:
+
+```
+GET {MAPROULETTE_API}/tasks/box/{left}/{bottom}/{right}/{top}?limit=200&page=N&tStatus=1,5
+```
+
+Two behaviours of this endpoint, checked against maproulette.org:
+
+- Without `tStatus` the listing leaves fixed tasks out, so the harvester always passes the union of the quests' `statuses`.
+- Each item's `modified` is the time of the response, not of the task. Completed tasks carry `mappedOn` and `completedBy` (`{id, username}`) in the listing, so the window is judged from `mappedOn`.
+
+Pages are 0-based; the harvester keeps paging while a page comes back full (200 items) and stops after 20 pages with a warning. A listed task is kept for a quest when its `status` is in the quest's `statuses`, its point is in the quest's area, its `parentId` (challenge) is in `challenge_ids` when that is set, and its `mappedOn`, when listed, is in the window.
+
+Each kept task is then fetched once, `GET {MAPROULETTE_API}/task/{id}`, for `changesetId`, `completedBy`, `mappedOn`, `modified` and `parent`. These requests are counted in the `detail_lookups` stat. A task whose stored submission for the quest has the same `status` and `mappedOn` as the listing (or the same `modified` when the listing has no `mappedOn`) is not fetched again; the stored submission is re-offered so a team can still be filled in.
+
+Attribution, in order:
+
+1. `changesetId > 0`: the OSM changeset's metadata (the same cached lookup as section 2) gives the OSM username and lets `require_hashtag` be checked. MapRoulette records `-1` when it does not know the changeset, which is common.
+2. Otherwise the user who completed the task: the username in the listing's `completedBy`, or, if the listing has none, `GET {MAPROULETTE_API}/user/{id}/public`, whose `osmProfile.displayName` is the OSM name (`name` is the fallback).
+3. Otherwise the author is `MapRoulette user <id>`. A task with no `completedBy` at all is skipped.
+
+A quest with `require_hashtag: true` only credits tasks whose changeset is known and carries the hashtag. Each (task, quest) pair is one submission, `external_id` `{task}/q{quest}`, linked to `https://maproulette.org/challenge/{challenge}/task/{task}`, `contributed_at` = `mappedOn` (or `modified`), with `diff_payload` `{challenge_id, challenge_name, task_title, status, changeset_id, mapped_on, modified, completed_by, attributed_by}`.
+
+---
+
+## 8. Crediting contributors to teams
 
 `match_author_to_team(event, author_username, platform)` compares the author with the event's team members, case-insensitively, in this order:
 
-1. the platform username a member shared when joining: `osm_username` for `osm`, `osm_notes`, and `ohm`; `wikimedia_username` for `commons` and `wikidata`; `github_username` for `github`;
+1. the platform username a member shared when joining: `osm_username` for `osm`, `osm_notes`, `ohm` and `maproulette`; `wikimedia_username` for `commons` and `wikidata`; `github_username` for `github`;
 2. the member's `user_identifier`;
 3. the member's `display_name`.
+
+For `mangrove` there is no username field: the author is the nickname the reviewer chose, so `display_name` is tried first and then `user_identifier`. Participants should set their Mangrove nickname to their display name in the hunt.
 
 Submissions with no matching member are still stored (`team = null`). If the member adds their username later, the next harvest fills the team in.
 
@@ -190,7 +239,7 @@ Within one run each `(platform, author)` pair is matched once and the result (in
 
 ---
 
-## 7. Running harvests
+## 9. Running harvests
 
 ### Scheduled (production)
 
@@ -229,6 +278,7 @@ python manage.py harvest_event 1 --dry-run  # make every fetch, write nothing, l
   "osm":       {"harvested": 3, "created": 1, "updated": 1, "matched": 2, "errors": 0, "history_lookups": 2},
   "osm_notes": {"harvested": 1, "created": 1, "updated": 0, "matched": 0, "errors": 0},
   "github":    {"harvested": 0, "created": 0, "updated": 0, "matched": 0, "errors": 1},
+  "maproulette": {"harvested": 2, "created": 1, "updated": 0, "matched": 1, "errors": 0, "detail_lookups": 1},
   "summary":   {"harvested": 4, "created": 2, "updated": 1, "matched": 2, "errors": 1},
   "warnings":  []
 }
@@ -239,17 +289,19 @@ python manage.py harvest_event 1 --dry-run  # make every fetch, write nothing, l
 - `matched`: created or updated submissions that were credited to a team.
 - `errors`: failed external calls. A failure in one platform never stops the others.
 - `history_lookups` (`osm` and `ohm` only): element history requests made for `"action": "create"` quests (section 2.4). It is not added to `summary`.
+- `detail_lookups` (`maproulette` only): `GET /task/{id}` requests (section 7). It is not added to `summary`.
 - `warnings`: non-error conditions, e.g. `OVERPASS_URL is not configured; skipped osm_tags quests`.
 
 Only platforms that ran appear as keys. A dry run adds `"would_submit": [{"platform", "external_id", "author", "element_count", "quest", "team", "action"}]`.
 
 ---
 
-## 8. Etiquette and limits
+## 10. Etiquette and limits
 
 - Every request sends `HARVEST_USER_AGENT`, a descriptive User-Agent as the OSM and Wikimedia API policies require. Override it per deployment with a contact address.
 - Every request has a timeout: 30 s for REST APIs, 90 s HTTP and `[timeout:60]` server-side for Overpass.
-- Queries are bounded: Overpass by area, `newer:`, and tags; Notes by bbox and `limit=100`; MediaWiki searches by `srlimit=50`; revisions by `rvstart`/`rvend` and `rvlimit`; GitHub by `created:>=` and `per_page=100`.
+- Queries are bounded: Overpass by area, `newer:`, and tags; Notes by bbox and `limit=100`; MediaWiki searches by `srlimit=50`; revisions by `rvstart`/`rvend` and `rvlimit`; GitHub by `created:>=` and `per_page=100`; Mangrove by one bbox request per run; MapRoulette by bbox, `tStatus`, `limit=200` and at most 20 pages.
+- Mangrove and MapRoulette publish no rate limits and need no authentication. Each run makes one Mangrove request, and for MapRoulette one listing request per page plus one task request per new or changed qualifying task (and a profile request only when the listing lacks the completing user's name). Do not list a challenge's tasks (`/challenge/{id}/tasks`): those listings are slow and can time out; the bbox listing is what the harvester uses.
 - OSM changeset metadata is fetched once per run and cached for 24 h once the changeset is closed.
 - Element history is fetched only for `"action": "create"` quests, at most once per element per run, and again only when the element's version goes up (section 2.4). Watch `history_lookups` in the stats.
 - On a 5-minute schedule an event with N `osm_tags` quests makes N Overpass queries per run. Keep N modest, or lengthen the schedule interval for very large events.

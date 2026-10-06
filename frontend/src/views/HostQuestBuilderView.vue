@@ -597,6 +597,38 @@ onUnmounted(() => {
           </div>
         </template>
 
+        <template v-if="criteriaType === 'mangrove_review'">
+          <div class="form-group">
+            <label class="form-label" for="minOpinionChars">Minimum review length (characters)</label>
+            <input id="minOpinionChars" v-model.number="rules.minOpinionChars" type="number" min="0" class="form-input" />
+            <p class="field-hint">0 accepts any review. Reviewers are credited by nickname, so tell them to use their display name.</p>
+          </div>
+          <label class="checkbox-row">
+            <input v-model="rules.requireHashtag" type="checkbox" />
+            Require the event hashtag in the review text
+          </label>
+        </template>
+
+        <template v-if="criteriaType === 'maproulette_task'">
+          <span class="form-label">Task statuses that count</span>
+          <div class="checkbox-inline">
+            <label class="checkbox-row"><input v-model="rules.mrStatuses.fixed" type="checkbox" /> Fixed</label>
+            <label class="checkbox-row"><input v-model="rules.mrStatuses.alreadyFixed" type="checkbox" /> Already fixed</label>
+            <label class="checkbox-row"><input v-model="rules.mrStatuses.falsePositive" type="checkbox" /> Not an issue (false positive)</label>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="challengeIds">Challenge ids <span class="optional">(optional)</span></label>
+            <input id="challengeIds" v-model="rules.challengeIds" type="text" class="form-input" placeholder="e.g. 56424, 42871 (blank = any challenge)" />
+          </div>
+          <label class="checkbox-row">
+            <input v-model="rules.mrRequireHashtag" type="checkbox" />
+            Require the event hashtag on the task's changeset
+          </label>
+          <p class="field-hint">
+            MapRoulette writes its own changeset comment and often does not record the changeset, so leave this off unless participants were told to add the hashtag.
+          </p>
+        </template>
+
         <p v-if="selectedType.comingSoon" class="field-hint coming-soon">
           Coming soon: the server does not verify this type yet, so the quest is saved as inactive.
         </p>

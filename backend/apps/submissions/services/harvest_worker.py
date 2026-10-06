@@ -18,6 +18,8 @@ from apps.events.models import Event
 from apps.quests.models import Quest
 from .github_harvester import harvest_github
 from .harvest_common import STAT_KEYS, HarvestContext, describe_exception
+from .mangrove_harvester import harvest_mangrove
+from .maproulette_harvester import harvest_maproulette
 from .osm_notes_harvester import harvest_osm_notes
 from .overpass_harvester import harvest_ohm_features, harvest_osm_tags
 from .wikidata_harvester import harvest_wikidata_entries, harvest_wikidata_statements
@@ -35,6 +37,8 @@ HARVESTERS: 'OrderedDict[str, tuple]' = OrderedDict([
     ('wikidata_entry', ('wikidata', harvest_wikidata_entries)),
     ('wikidata_statement', ('wikidata', harvest_wikidata_statements)),
     ('oss_contribution', ('github', harvest_github)),
+    ('mangrove_review', ('mangrove', harvest_mangrove)),
+    ('maproulette_task', ('maproulette', harvest_maproulette)),
 ])
 
 # Scheduled harvests run for events whose window, padded by this much, contains now.

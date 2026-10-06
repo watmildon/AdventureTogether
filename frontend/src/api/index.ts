@@ -53,6 +53,8 @@ export type CriteriaType =
   | 'wikidata_statement'
   | 'oss_contribution'
   | 'street_imagery'
+  | 'mangrove_review'
+  | 'maproulette_task'
 
 /**
  * The conference session a quest is tied to. Every field is optional because quests
@@ -218,6 +220,8 @@ export type SubmissionPlatform =
   | 'checkin'
   | 'github'
   | 'panoramax'
+  | 'mangrove'
+  | 'maproulette'
 
 export interface SubmissionData {
   id: number

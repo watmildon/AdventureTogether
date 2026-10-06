@@ -104,7 +104,8 @@ describe('HomeView (participant landing page)', () => {
 
   it('saves ticked tools to participant_tools', async () => {
     const wrapper = await mountHome()
-    expect(wrapper.findAll('.tool')).toHaveLength(8)
+    // One per TOOLS entry, including Mangrove and MapRoulette
+    expect(wrapper.findAll('.tool')).toHaveLength(10)
     await wrapper.find('input[data-tool="everydoor"]').setValue(true)
     await wrapper.find('input[data-tool="wikidata"]').setValue(true)
     await flushPromises()

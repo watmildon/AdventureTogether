@@ -109,6 +109,24 @@ export const QUEST_TYPES: Record<CriteriaType, QuestTypeInfo> = {
     colorToken: '--color-type-imagery',
     color: '#db2777',
     comingSoon: true
+  },
+  mangrove_review: {
+    label: 'Mangrove place review',
+    shortLabel: 'Review',
+    icon: '💬',
+    description: 'Review a place in the area on Mangrove (open reviews, no account). Use your display name as the nickname and put the event hashtag in the review.',
+    helpApp: 'mangrove.reviews',
+    colorToken: '--color-type-review',
+    color: '#0f766e'
+  },
+  maproulette_task: {
+    label: 'MapRoulette task',
+    shortLabel: 'MapRoulette',
+    icon: '🎯',
+    description: 'Fix MapRoulette tasks in the area, logged in with your OpenStreetMap account so your OSM username can be credited.',
+    helpApp: 'maproulette.org',
+    colorToken: '--color-type-maproulette',
+    color: '#4338ca'
   }
 }
 
@@ -139,7 +157,9 @@ export const PLATFORMS: Record<SubmissionPlatform, { label: string; type: Criter
   osm_notes: { label: 'OSM Notes', type: 'osm_notes' },
   checkin: { label: 'Check-in', type: 'location_checkin' },
   github: { label: 'GitHub', type: 'oss_contribution' },
-  panoramax: { label: 'Panoramax', type: 'street_imagery' }
+  panoramax: { label: 'Panoramax', type: 'street_imagery' },
+  mangrove: { label: 'Mangrove Reviews', type: 'mangrove_review' },
+  maproulette: { label: 'MapRoulette', type: 'maproulette_task' }
 }
 
 /** Badge data for a submission platform; unknown platforms get the generic icon and their raw key. */
@@ -238,6 +258,8 @@ export type ToolId =
   | 'ohm_editor'
   | 'github'
   | 'panoramax'
+  | 'mangrove'
+  | 'maproulette'
 
 export interface ToolInfo {
   id: ToolId
@@ -298,6 +320,18 @@ export const TOOLS: ToolInfo[] = [
     label: 'Panoramax',
     description: 'Capture and upload street-level photo sequences to the open Panoramax imagery commons.',
     links: [{ label: 'About and apps', url: 'https://wiki.openstreetmap.org/wiki/Panoramax' }]
+  },
+  {
+    id: 'mangrove',
+    label: 'Mangrove Reviews (web, mangrove.reviews)',
+    description: 'Write open reviews of places in the browser. No account needed; set your nickname to your display name here.',
+    links: [{ label: 'Open Mangrove', url: 'https://mangrove.reviews/' }]
+  },
+  {
+    id: 'maproulette',
+    label: 'MapRoulette (web, maproulette.org, OSM login)',
+    description: 'Fix small OpenStreetMap tasks one at a time in the browser. Sign in with your OpenStreetMap account.',
+    links: [{ label: 'Open MapRoulette', url: 'https://maproulette.org/' }]
   }
 ]
 
@@ -317,6 +351,8 @@ export const questTypeTools: Record<CriteriaType, ToolId[]> = {
   wikidata_statement: ['wikidata'],
   oss_contribution: ['github'],
   street_imagery: ['panoramax'],
+  mangrove_review: ['mangrove'],
+  maproulette_task: ['maproulette'],
   location_checkin: []
 }
 

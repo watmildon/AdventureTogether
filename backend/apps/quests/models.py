@@ -22,6 +22,8 @@ class Quest(models.Model):
         ('wikidata_statement', 'Wikidata Statement on Item'),
         ('oss_contribution', 'Open Source Contribution (GitHub)'),
         ('street_imagery', 'Street-level Imagery (Panoramax)'),
+        ('mangrove_review', 'Mangrove Place Review'),
+        ('maproulette_task', 'MapRoulette Task Fixed'),
     ]
 
     event = models.ForeignKey(

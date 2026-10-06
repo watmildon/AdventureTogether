@@ -7,9 +7,10 @@ exception messages, so errors are only ever reported by exception class name and
 """
 
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone as dt_timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from django.conf import settings
@@ -131,6 +132,33 @@ def point_in_quest_area(event: Event, quest: Quest, lat: float, lon: float) -> b
     if geom.geom_type == 'Point':
         return haversine_m(lat, lon, geom.y, geom.x) <= quest_radius_m(quest)
     return geom.contains(Point(lon, lat, srid=4326))
+
+
+def quest_bbox(event: Event, quest: Quest) -> Tuple[float, float, float, float]:
+    """
+    (min_lon, min_lat, max_lon, max_lat) around the quest's target area, for APIs that only
+    take a bounding box: the box of radius_m around a Point target, the extent of any other
+    geometry, or the event perimeter's extent when the quest has no geometry. Callers still
+    filter with point_in_quest_area, since a box is wider than the area itself.
+    """
+    geom = quest.target_geometry
+    if geom is None:
+        return tuple(event.bounding_polygon.extent)
+    if geom.geom_type == 'Point':
+        radius = quest_radius_m(quest)
+        dlat = radius / 111_320.0
+        dlon = radius / (111_320.0 * max(math.cos(math.radians(geom.y)), 0.01))
+        return (geom.x - dlon, geom.y - dlat, geom.x + dlon, geom.y + dlat)
+    return tuple(geom.extent)
+
+
+def union_bbox(boxes) -> Optional[Tuple[float, float, float, float]]:
+    """The smallest box covering every (min_lon, min_lat, max_lon, max_lat) box; None when empty."""
+    boxes = list(boxes)
+    if not boxes:
+        return None
+    return (min(b[0] for b in boxes), min(b[1] for b in boxes),
+            max(b[2] for b in boxes), max(b[3] for b in boxes))
 
 
 @dataclass

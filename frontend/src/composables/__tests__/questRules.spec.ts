@@ -81,6 +81,33 @@ describe('composeValidationRules', () => {
     expect(composeValidationRules('location_checkin', defaultRuleForm(), true)).toEqual({ radius_m: 50, min_minutes: 0 })
   })
 
+  it('mangrove_review: hashtag on and any length by default', () => {
+    expect(composeValidationRules('mangrove_review', defaultRuleForm(), false)).toEqual({
+      target_count: 1,
+      require_hashtag: true,
+      min_opinion_chars: 0
+    })
+    const form = { ...defaultRuleForm(), minOpinionChars: 39.6, requireHashtag: false }
+    expect(composeValidationRules('mangrove_review', form, false)).toMatchObject({ min_opinion_chars: 40, require_hashtag: false })
+  })
+
+  it('maproulette_task: fixed and already fixed, no hashtag, optional challenge ids', () => {
+    const form = defaultRuleForm()
+    expect(composeValidationRules('maproulette_task', form, false)).toEqual({
+      target_count: 1,
+      statuses: [1, 5],
+      require_hashtag: false
+    })
+    form.mrStatuses = { fixed: true, alreadyFixed: false, falsePositive: true }
+    form.challengeIds = '56424, 42871'
+    expect(composeValidationRules('maproulette_task', form, false)).toEqual({
+      target_count: 1,
+      statuses: [1, 2],
+      require_hashtag: false,
+      challenge_ids: [56424, 42871]
+    })
+  })
+
   it('count-only types and bad numbers fall back to a target_count of 1', () => {
     const form = { ...defaultRuleForm(), targetCount: NaN }
     for (const type of ['wikidata_entry', 'osm_notes', 'street_imagery'] as const) {
@@ -100,6 +127,10 @@ describe('validateRuleForm', () => {
     expect(validateRuleForm('location_checkin', form, false)).toMatch(/target point/)
     expect(validateRuleForm('location_checkin', form, true)).toBeNull()
     expect(validateRuleForm('osm_tags', { ...form, osmTags: [{ key: ' ', value: 'x' }] }, false)).toMatch(/tag/)
+    expect(validateRuleForm('maproulette_task', form, false)).toBeNull()
+    const noStatus = { fixed: false, alreadyFixed: false, falsePositive: false }
+    expect(validateRuleForm('maproulette_task', { ...form, mrStatuses: noStatus }, false)).toMatch(/status/)
+    expect(validateRuleForm('maproulette_task', { ...form, challengeIds: '56424, flags' }, false)).toMatch(/Challenge ids/)
   })
 })
 
@@ -132,7 +163,11 @@ describe('rulesToForm (inverse of composeValidationRules)', () => {
     ['oss_contribution', { kinds: ['pr', 'issue'], allowed_owners: ['OSGeo', 'qgis'], target_count: 1 }, false],
     ['oss_contribution', { kinds: ['issue'], target_count: 2 }, false],
     ['location_checkin', { radius_m: 60, min_minutes: 5 }, true],
-    ['street_imagery', { target_count: 1 }, false]
+    ['street_imagery', { target_count: 1 }, false],
+    ['mangrove_review', { target_count: 2, require_hashtag: true, min_opinion_chars: 40 }, false],
+    ['mangrove_review', { target_count: 1, require_hashtag: false, min_opinion_chars: 0 }, true],
+    ['maproulette_task', { target_count: 3, statuses: [1, 5], require_hashtag: false }, false],
+    ['maproulette_task', { target_count: 1, statuses: [2], require_hashtag: true, challenge_ids: [56424, 42871] }, false]
   ]
 
   it('covers every type', () => {
@@ -162,6 +197,9 @@ describe('rulesToForm (inverse of composeValidationRules)', () => {
     expect(rulesToForm('osm_tags', { action: 'delete' }).osmAction).toBe('any')
     expect(rulesToForm('oss_contribution', null).kinds).toEqual({ pr: true, issue: true })
     expect(rulesToForm('location_checkin', { radius_m: 'x' }).checkinRadiusM).toBe(50)
+    expect(rulesToForm('mangrove_review', {}).requireHashtag).toBe(true)
+    expect(rulesToForm('maproulette_task', {}).mrStatuses).toEqual({ fixed: true, alreadyFixed: true, falsePositive: false })
+    expect(rulesToForm('maproulette_task', {}).mrRequireHashtag).toBe(false)
   })
 
   it('objectToTags turns values into strings', () => {

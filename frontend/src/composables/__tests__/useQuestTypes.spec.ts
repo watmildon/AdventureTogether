@@ -15,7 +15,7 @@ import {
 } from '../useQuestTypes'
 
 describe('QUEST_TYPES map', () => {
-  it('covers all nine criteria types with complete presentation data', () => {
+  it('covers all eleven criteria types with complete presentation data', () => {
     expect(CRITERIA_TYPES).toEqual([
       'osm_tags',
       'wikimedia_commons',
@@ -25,7 +25,9 @@ describe('QUEST_TYPES map', () => {
       'osm_notes',
       'ohm_feature',
       'oss_contribution',
-      'street_imagery'
+      'street_imagery',
+      'mangrove_review',
+      'maproulette_task'
     ])
     for (const type of CRITERIA_TYPES) {
       const info = QUEST_TYPES[type]
@@ -174,6 +176,11 @@ describe('tools and canDoQuest', () => {
     expect(canDoQuest('oss_contribution', ['github'])).toBe(true)
     expect(canDoQuest('street_imagery', ['panoramax'])).toBe(true)
     expect(canDoQuest('street_imagery', [])).toBe(false)
+    expect(canDoQuest('mangrove_review', ['mangrove'])).toBe(true)
+    expect(canDoQuest('mangrove_review', ['osm_web'])).toBe(false)
+    expect(canDoQuest('maproulette_task', ['maproulette'])).toBe(true)
+    expect(canDoQuest('maproulette_task', ['streetcomplete'])).toBe(false)
+    expect(toolsNeededText('maproulette_task')).toBe('MapRoulette (web, maproulette.org, OSM login)')
   })
 
   it('treats check-ins and unknown types as always doable', () => {

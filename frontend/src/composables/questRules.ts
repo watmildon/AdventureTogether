@@ -12,6 +12,8 @@
  *   oss_contribution   {kinds, allowed_owners?, target_count}
  *   location_checkin   {radius_m, min_minutes}
  *   street_imagery     {target_count}
+ *   mangrove_review    {target_count, require_hashtag, min_opinion_chars}
+ *   maproulette_task   {target_count, statuses, require_hashtag, challenge_ids?}
  *
  * Any type can also carry an optional `scoring` block (value scoring: points per distinct
  * bucket of values and a bonus for the extreme value; see documentation/quest_types.md):
@@ -80,6 +82,10 @@ export function patternForKind(pattern: string, from: ScoringKind, to: ScoringKi
   return !pattern.trim() || pattern === DEFAULT_SCORING_PATTERNS[from] ? DEFAULT_SCORING_PATTERNS[to] : pattern
 }
 
+/** MapRoulette task statuses the builder offers (fixed, already fixed, false positive). */
+export const MAPROULETTE_STATUSES = { fixed: 1, alreadyFixed: 5, falsePositive: 2 } as const
+export type MapRouletteStatusKey = keyof typeof MAPROULETTE_STATUSES
+
 export interface TagRow {
   key: string
   /** A literal value, or "*" (or blank) for "any value". */
@@ -104,6 +110,14 @@ export interface RuleForm {
   allowedOwners: string
   checkinRadiusM: number
   minMinutes: number
+  /** mangrove_review: minimum review length (0 = any). The hashtag rule uses requireHashtag. */
+  minOpinionChars: number
+  /** maproulette_task statuses that count. */
+  mrStatuses: Record<MapRouletteStatusKey, boolean>
+  /** Comma- or space-separated MapRoulette challenge ids (blank = any challenge). */
+  challengeIds: string
+  /** maproulette_task require_hashtag; off by default since MapRoulette edits rarely carry it. */
+  mrRequireHashtag: boolean
   /** validation_rules.scoring, for every type. */
   scoring: ScoringForm
 }
@@ -127,6 +141,10 @@ export function defaultRuleForm(): RuleForm {
     allowedOwners: '',
     checkinRadiusM: 50,
     minMinutes: 0,
+    minOpinionChars: 0,
+    mrStatuses: { fixed: true, alreadyFixed: true, falsePositive: false },
+    challengeIds: '',
+    mrRequireHashtag: false,
     scoring: defaultScoringForm()
   }
 }
@@ -215,6 +233,25 @@ function composeTypeRules(type: CriteriaType, form: RuleForm, hasPointTarget: bo
         radius_m: positiveInt(form.checkinRadiusM, 50),
         min_minutes: Number.isFinite(form.minMinutes) && form.minMinutes > 0 ? Math.round(form.minMinutes) : 0
       }
+    case 'mangrove_review':
+      return {
+        target_count,
+        require_hashtag: form.requireHashtag,
+        min_opinion_chars: Number.isFinite(form.minOpinionChars) && form.minOpinionChars > 0 ? Math.round(form.minOpinionChars) : 0
+      }
+    case 'maproulette_task': {
+      const statuses = (Object.keys(MAPROULETTE_STATUSES) as MapRouletteStatusKey[])
+        .filter((key) => form.mrStatuses[key])
+        .map((key) => MAPROULETTE_STATUSES[key])
+        .sort((a, b) => a - b)
+      const challengeIds = splitList(form.challengeIds).map(Number).filter((id) => Number.isInteger(id) && id > 0)
+      return {
+        target_count,
+        statuses,
+        require_hashtag: form.mrRequireHashtag,
+        ...(challengeIds.length ? { challenge_ids: challengeIds } : {})
+      }
+    }
     case 'wikidata_entry':
     case 'osm_notes':
     case 'street_imagery':
@@ -236,7 +273,9 @@ export const MODELLED_RULE_KEYS: Record<CriteriaType, string[]> = {
   ohm_feature: ['required_tags', 'target_count', 'scoring'],
   oss_contribution: ['kinds', 'allowed_owners', 'target_count', 'scoring'],
   location_checkin: ['radius_m', 'min_minutes', 'scoring'],
-  street_imagery: ['target_count', 'scoring']
+  street_imagery: ['target_count', 'scoring'],
+  mangrove_review: ['target_count', 'require_hashtag', 'min_opinion_chars', 'scoring'],
+  maproulette_task: ['target_count', 'statuses', 'require_hashtag', 'challenge_ids', 'scoring']
 }
 
 /** {key: value} to tag rows (the inverse of tagsToObject). */
@@ -327,6 +366,22 @@ export function rulesToForm(type: CriteriaType, rules: Record<string, any> | nul
       form.checkinRadiusM = numberOr(r.radius_m, form.checkinRadiusM)
       form.minMinutes = numberOr(r.min_minutes, form.minMinutes)
       break
+    case 'mangrove_review':
+      form.requireHashtag = r.require_hashtag !== false
+      form.minOpinionChars = numberOr(r.min_opinion_chars, form.minOpinionChars)
+      break
+    case 'maproulette_task': {
+      // The harvester treats missing/empty statuses as fixed and already fixed
+      const statuses: number[] = Array.isArray(r.statuses) && r.statuses.length ? r.statuses.map(Number) : [1, 5]
+      form.mrStatuses = {
+        fixed: statuses.includes(MAPROULETTE_STATUSES.fixed),
+        alreadyFixed: statuses.includes(MAPROULETTE_STATUSES.alreadyFixed),
+        falsePositive: statuses.includes(MAPROULETTE_STATUSES.falsePositive)
+      }
+      form.challengeIds = listText(r.challenge_ids)
+      form.mrRequireHashtag = r.require_hashtag === true
+      break
+    }
   }
   return form
 }
@@ -370,6 +425,11 @@ function validateTypeRules(type: CriteriaType, form: RuleForm, hasPointTarget: b
       return form.kinds.pr || form.kinds.issue ? null : 'Pick pull requests, issues, or both.'
     case 'location_checkin':
       return hasPointTarget ? null : 'Check-in quests need a target point: click the map where people should stand.'
+    case 'maproulette_task': {
+      if (!Object.values(form.mrStatuses).some(Boolean)) return 'Pick at least one task status that counts.'
+      const ids = splitList(form.challengeIds)
+      return ids.every((id) => /^\d+$/.test(id)) ? null : 'Challenge ids are numbers, e.g. 56424, 42871.'
+    }
     default:
       return null
   }

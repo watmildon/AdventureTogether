@@ -793,6 +793,113 @@
         "track": "Conference Events",
         "url": "https://www.foss4gna.org/conference-events"
       }
+    },
+    {
+      "title": "Name the flag",
+      "description": "Only a handful of the flagpoles downtown say which flag they fly. Find one, identify the flag, and tag it fully: flag:type, flag:name, flag:wikidata, subject:wikidata and country, so it renders nicely on the map. https://watmildon.github.io/osm-wikidata-flag-id-tools/ shows common flags: tap a flag to copy its OSM tags, then paste them in iD or Every Door. Put #FOSS4GNA2026 in the changeset comment (StreetComplete and Every Door let you set it once in their settings) so the hunt can credit your team.",
+      "criteria_type": "osm_tags",
+      "validation_rules": {
+        "required_tags": {
+          "man_made": "flagpole",
+          "flag:wikidata": "*"
+        },
+        "target_count": 3,
+        "require_hashtag": true
+      },
+      "target_geometry": null,
+      "points_reward": 30,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "LRZVUR"
+      }
+    },
+    {
+      "title": "Who was it named after?",
+      "description": "Sacramento's lettered and numbered streets have no namesake, but its parks, plazas, buildings and some streets do. Find out who or what a place is named after and add name:etymology:wikidata pointing at that person or thing (name:etymology:wikipedia too, if you like). Put #FOSS4GNA2026 in the changeset comment (StreetComplete and Every Door let you set it once in their settings) so the hunt can credit your team.",
+      "criteria_type": "osm_tags",
+      "validation_rules": {
+        "required_tags": {
+          "name": "*",
+          "name:etymology:wikidata": "*"
+        },
+        "target_count": 3,
+        "require_hashtag": true
+      },
+      "target_geometry": null,
+      "points_reward": 30,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "RFWDWJ"
+      }
+    },
+    {
+      "title": "Rate it on Mangrove",
+      "description": "After a meal or a coffee in the farm-to-fork blocks, leave an honest review of the place on https://mangrove.reviews: it is an open review dataset and needs no account. Set your nickname to your display name in this hunt and put #FOSS4GNA2026 in the review text so the hunt can credit your team. Write a sentence or two (at least 40 characters).",
+      "criteria_type": "mangrove_review",
+      "validation_rules": {
+        "target_count": 2,
+        "require_hashtag": true,
+        "min_opinion_chars": 40
+      },
+      "target_geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -121.496,
+              38.5775
+            ],
+            [
+              -121.488,
+              38.5775
+            ],
+            [
+              -121.488,
+              38.5825
+            ],
+            [
+              -121.496,
+              38.5825
+            ],
+            [
+              -121.496,
+              38.5775
+            ]
+          ]
+        ]
+      },
+      "points_reward": 20,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "ETLHYT"
+      }
+    },
+    {
+      "title": "Clear a MapRoulette task",
+      "description": "Open https://maproulette.org, zoom to downtown Sacramento and fix tasks in the event area: parking types, bike-rack capacity, restaurant cuisine, California flags and more. Log in with your OpenStreetMap account (and share your OSM username with your team) so we can credit you. No hashtag needed.",
+      "criteria_type": "maproulette_task",
+      "validation_rules": {
+        "target_count": 3,
+        "statuses": [
+          1,
+          5
+        ],
+        "require_hashtag": false
+      },
+      "target_geometry": null,
+      "points_reward": 30,
+      "is_active": true,
+      "window_start": null,
+      "window_end": null,
+      "inspired_by": {
+        "code": "9NC8UG"
+      }
     }
   ],
   "teams": [

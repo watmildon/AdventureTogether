@@ -83,7 +83,7 @@ Behaviour:
 |---|---|---|
 | `title` | yes | Upsert key within the event. |
 | `description` | no | Participant-facing instructions. Say which app helps and that the hashtag goes in the changeset / upload comment. |
-| `criteria_type` | no | Default `osm_tags`. One of `osm_tags`, `wikimedia_commons`, `wikidata_entry`, `location_checkin`, `osm_notes`, `ohm_feature`, `wikidata_statement`, `oss_contribution`, `street_imagery`. |
+| `criteria_type` | no | Default `osm_tags`. One of `osm_tags`, `wikimedia_commons`, `wikidata_entry`, `location_checkin`, `osm_notes`, `ohm_feature`, `wikidata_statement`, `oss_contribution`, `street_imagery`, `mangrove_review`, `maproulette_task`. |
 | `validation_rules` | no | Object; shape depends on the type (see below). |
 | `target_geometry` | no | Any GeoJSON geometry, or `null` for "anywhere in the event perimeter". Must intersect the event polygon. |
 | `points_reward` | no | Integer, default 10. |
@@ -104,6 +104,8 @@ Behaviour:
 | `oss_contribution` | `{"kinds": ["pr", "issue"], "allowed_owners": ["OSGeo", "qgis", ...], "target_count": 1}` |
 | `location_checkin` | `{"radius_m": 60, "min_minutes": 0}` |
 | `street_imagery` | `{"target_count": 1}` (stretch; not harvested yet) |
+| `mangrove_review` | `{"target_count": n, "require_hashtag": true, "min_opinion_chars": 40}` |
+| `maproulette_task` | `{"target_count": n, "statuses": [1, 5], "challenge_ids": [56424], "require_hashtag": false}`; `challenge_ids` optional |
 
 `required_tags` values are matched exactly (case-insensitive) or with `*` for "any value". There is no "a or b" syntax, so "restaurant or cafe" is written as `"amenity": "*"` inside a tight polygon.
 
@@ -161,7 +163,7 @@ To find codes, open the schedule on pretalx (the code is the last part of a talk
 
 The repo ships the event file and a snapshot of the pretalx export (127 sessions) so seeding works offline:
 
-- `backend/fixtures/foss4gna_2026.json`: event, 24 quests, one demo team
+- `backend/fixtures/foss4gna_2026.json`: event, 28 quests, one demo team
 - `backend/fixtures/foss4gna_2026_schedule.json`: schedule export from `https://talks.osgeo.org/foss4g-na-2026/schedule/export/schedule.json`
 
 Native (from `backend/`, with the virtualenv active and migrations applied):

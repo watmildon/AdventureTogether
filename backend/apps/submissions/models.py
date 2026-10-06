@@ -21,6 +21,8 @@ class Submission(models.Model):
         ('checkin', 'GPS Check-in'),
         ('github', 'GitHub'),
         ('panoramax', 'Panoramax'),
+        ('mangrove', 'Mangrove Reviews'),
+        ('maproulette', 'MapRoulette'),
     ]
 
     event = models.ForeignKey(
