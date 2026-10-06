@@ -1,122 +1,120 @@
 """
-Background Harvester Worker Orchestrator (Django-Q2).
+Harvest orchestration (run by Django-Q2 on a schedule, by the trigger_harvest API action, and
+by `manage.py harvest_event`).
+
+Each criteria type present among an event's active quests is dispatched to its harvester, so an
+event without GitHub quests never calls GitHub. A failing platform is counted and logged (by
+exception class only, never with URLs) and does not stop the others.
 """
 
-from typing import List, Dict, Any
+import logging
+from collections import OrderedDict
+from datetime import timedelta
+from typing import Any, Callable, Dict, List
+
+from django.utils import timezone
+
 from apps.events.models import Event
-from apps.submissions.models import Submission
-from .osm_harvester import fetch_osm_changesets, fetch_osm_changeset_diff
-from .wikimedia_harvester import fetch_wikimedia_commons_uploads
-from .wikidata_harvester import fetch_wikidata_revisions
-from .tag_matcher import match_submission_to_quest, match_author_to_team
+from apps.quests.models import Quest
+from .github_harvester import harvest_github
+from .harvest_common import STAT_KEYS, HarvestContext, describe_exception
+from .osm_notes_harvester import harvest_osm_notes
+from .overpass_harvester import harvest_ohm_features, harvest_osm_tags
+from .wikidata_harvester import harvest_wikidata_entries, harvest_wikidata_statements
+from .wikimedia_harvester import harvest_commons
+
+logger = logging.getLogger('apps.submissions.harvest')
+
+# criteria_type -> (stats platform key, harvester). Types not listed (location_checkin,
+# street_imagery) are not harvested from external APIs here.
+HARVESTERS: 'OrderedDict[str, tuple]' = OrderedDict([
+    ('osm_tags', ('osm', harvest_osm_tags)),
+    ('ohm_feature', ('ohm', harvest_ohm_features)),
+    ('osm_notes', ('osm_notes', harvest_osm_notes)),
+    ('wikimedia_commons', ('commons', harvest_commons)),
+    ('wikidata_entry', ('wikidata', harvest_wikidata_entries)),
+    ('wikidata_statement', ('wikidata', harvest_wikidata_statements)),
+    ('oss_contribution', ('github', harvest_github)),
+])
+
+# Scheduled harvests run for events whose window, padded by this much, contains now.
+ACTIVE_WINDOW_PADDING = timedelta(days=1)
 
 
-def harvest_event_submissions(event_id: int) -> Dict[str, int]:
+def _empty_stats(event_id: int, dry_run: bool) -> Dict[str, Any]:
+    return {
+        'event': event_id,
+        'dry_run': dry_run,
+        'summary': {k: 0 for k in STAT_KEYS},
+        'warnings': [],
+    }
+
+
+def harvest_event_submissions(event_id: int, dry_run: bool = False) -> Dict[str, Any]:
     """
-    Harvests OSM, Commons, and Wikidata contributions for a specific event.
-    Returns counts of harvested and staged submissions.
-    """
-    stats = {'harvested': 0, 'created': 0, 'matched': 0}
+    Harvests every platform the event's active quests need.
 
+    Returns {"event": id, "dry_run": bool, "<platform>": {harvested, created, updated, matched,
+    errors}, ..., "summary": {same keys, totalled}, "warnings": [...]}; with dry_run also
+    "would_submit": [{platform, external_id, author, element_count, quest, team, action}].
+    """
+    result = _empty_stats(event_id, dry_run)
     try:
         event = Event.objects.get(id=event_id, is_active=True)
     except Event.DoesNotExist:
-        return stats
+        result['warnings'].append('event not found or inactive')
+        result['found'] = False
+        return result
+    result['found'] = True
 
-    hashtag = event.hashtag
+    quests_by_type: Dict[str, List[Quest]] = {}
+    for quest in Quest.objects.filter(event=event, is_active=True).order_by('id'):
+        quests_by_type.setdefault(quest.criteria_type, []).append(quest)
 
-    # 1. Harvest OpenStreetMap Changesets
-    min_lon, min_lat, max_lon, max_lat = event.bounding_polygon.extent
-    bbox_str = f"{min_lon:.5f},{min_lat:.5f},{max_lon:.5f},{max_lat:.5f}"
+    ctx = HarvestContext(event=event, dry_run=dry_run)
+    for criteria_type, (platform, harvester) in HARVESTERS.items():
+        quests = quests_by_type.get(criteria_type)
+        if not quests:
+            continue
+        _run_harvester(ctx, platform, criteria_type, harvester, quests)
 
-    osm_items = fetch_osm_changesets(bbox_str, hashtag)
-    stats['harvested'] += len(osm_items)
-
-    for item in osm_items:
-        ext_id = item['external_id']
-        diff = fetch_osm_changeset_diff(ext_id)
-
-        quest = match_submission_to_quest(event, 'osm', diff)
-        team = match_author_to_team(event, item['author_username'])
-
-        submission, created = Submission.objects.get_or_create(
-            platform='osm',
-            external_id=ext_id,
-            defaults={
-                'event': event,
-                'quest': quest,
-                'team': team,
-                'author_username': item['author_username'],
-                'external_url': item['external_url'],
-                'diff_payload': diff,
-            }
-        )
-        if created:
-            stats['created'] += 1
-            if quest:
-                stats['matched'] += 1
-
-    # 2. Harvest Wikimedia Commons Uploads
-    commons_items = fetch_wikimedia_commons_uploads(hashtag)
-    stats['harvested'] += len(commons_items)
-
-    for item in commons_items:
-        ext_id = item['external_id']
-        quest = match_submission_to_quest(event, 'commons', item['diff_payload'])
-        team = match_author_to_team(event, item['author_username'])
-
-        submission, created = Submission.objects.get_or_create(
-            platform='commons',
-            external_id=ext_id,
-            defaults={
-                'event': event,
-                'quest': quest,
-                'team': team,
-                'author_username': item['author_username'],
-                'external_url': item['external_url'],
-                'diff_payload': item['diff_payload'],
-            }
-        )
-        if created:
-            stats['created'] += 1
-            if quest:
-                stats['matched'] += 1
-
-    # 3. Harvest Wikidata Edits
-    wikidata_items = fetch_wikidata_revisions(hashtag)
-    stats['harvested'] += len(wikidata_items)
-
-    for item in wikidata_items:
-        ext_id = item['external_id']
-        quest = match_submission_to_quest(event, 'wikidata', item['diff_payload'])
-        team = match_author_to_team(event, item['author_username'])
-
-        submission, created = Submission.objects.get_or_create(
-            platform='wikidata',
-            external_id=ext_id,
-            defaults={
-                'event': event,
-                'quest': quest,
-                'team': team,
-                'author_username': item['author_username'],
-                'external_url': item['external_url'],
-                'diff_payload': item['diff_payload'],
-            }
-        )
-        if created:
-            stats['created'] += 1
-            if quest:
-                stats['matched'] += 1
-
-    return stats
+    for platform, counts in ctx.stats.items():
+        result[platform] = counts
+        for key in STAT_KEYS:
+            result['summary'][key] += counts[key]
+    result['warnings'].extend(ctx.warnings)
+    if dry_run:
+        result['would_submit'] = ctx.would_submit
+    return result
 
 
-def harvest_all_active_events() -> Dict[int, Dict[str, int]]:
+def _run_harvester(ctx: HarvestContext, platform: str, criteria_type: str,
+                   harvester: Callable, quests: List[Quest]) -> None:
+    try:
+        harvester(ctx, quests)
+    except Exception as exc:  # one platform failing must not stop the others
+        ctx.error(platform, f'{criteria_type} harvester failed: {describe_exception(exc)}')
+
+
+def events_due_for_harvest(now=None):
+    now = now or timezone.now()
+    return Event.objects.filter(
+        is_active=True,
+        start_time__lte=now + ACTIVE_WINDOW_PADDING,
+        end_time__gte=now - ACTIVE_WINDOW_PADDING,
+    )
+
+
+def harvest_all_active_events() -> Dict[int, Dict[str, Any]]:
     """
-    Scheduled task entrypoint: iterates through all active events and harvests submissions.
+    Scheduled task entrypoint: harvests active events whose window (start - 1 day,
+    end + 1 day) contains now.
     """
     results = {}
-    active_events = Event.objects.filter(is_active=True)
-    for event in active_events:
-        results[event.id] = harvest_event_submissions(event.id)
+    for event in events_due_for_harvest():
+        try:
+            results[event.id] = harvest_event_submissions(event.id)
+        except Exception as exc:
+            logger.warning('Harvest of event %s failed: %s', event.id, describe_exception(exc))
+            results[event.id] = {'error': describe_exception(exc)}
     return results

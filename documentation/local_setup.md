@@ -48,7 +48,7 @@ export SPATIALITE_LIBRARY_PATH=/opt/homebrew/lib/mod_spatialite.dylib
 unset POSTGRES_DB   # when unset, settings.py falls back to SpatiaLite
 
 # External API credentials for the harvesters. Both are secrets: never commit or paste them.
-export OVERPASS_URL="$(cat ~/.overpassurl)"   # private Overpass endpoint (public fallback: https://overpass-api.de/api/interpreter)
+export OVERPASS_URL="$(cat ~/.overpassurl)"   # private Overpass endpoint; if unset, osm_tags quests are skipped (no automatic public fallback)
 export GITHUB_TOKEN=...                       # optional; raises GitHub search rate limits for oss_contribution quests
 ```
 
@@ -82,14 +82,17 @@ Open `http://localhost:3000`. The `/api` proxy target can be overridden with `VI
 
 ### 2.4 Background worker (optional)
 
-The harvester that polls OpenStreetMap, Wikimedia Commons, and Wikidata runs in a Django-Q2 cluster:
+The harvesters (OpenStreetMap via Overpass, OSM Notes, OpenHistoricalMap, Wikimedia Commons, Wikidata, GitHub) run in a Django-Q2 cluster. Register the schedules once (safe to rerun), then start the cluster:
 
 ```bash
 cd backend
+.venv/bin/python manage.py setup_schedules   # harvest every 5 min, ping cleanup every 10 min
 .venv/bin/python manage.py qcluster
 ```
 
-Note that nothing currently schedules the harvest task, so running the cluster alone does nothing. The harvest can be triggered manually from the Host Verification page ("Poll External APIs Now") or with:
+The scheduled harvest only touches events whose window (start - 1 day to end + 1 day) contains the current time. To run one harvest by hand and see the stats, use `manage.py harvest_event <event_id> [--dry-run]`. See [harvesters.md](harvesters.md) for details.
+
+The harvest can also be triggered from the Host Verification page ("Poll External APIs Now") or with:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/submissions/trigger_harvest/ \

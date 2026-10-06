@@ -67,7 +67,20 @@ class SubmissionViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        stats = harvest_event_submissions(int(event_id))
+        try:
+            event_id = int(event_id)
+        except (TypeError, ValueError):
+            return Response(
+                {'error': 'Field "event" must be an integer.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        stats = harvest_event_submissions(event_id)
+        if not stats.get('found'):
+            return Response(
+                {'error': f'Event {event_id} not found or inactive.', 'stats': stats},
+                status=status.HTTP_404_NOT_FOUND
+            )
         return Response({
             'message': f'Harvest completed for event {event_id}.',
             'stats': stats

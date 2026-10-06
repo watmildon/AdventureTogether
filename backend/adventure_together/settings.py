@@ -162,8 +162,11 @@ Q_CLUSTER = {
     'name': 'AdventureTogetherCluster',
     'workers': int(os.environ.get('DJANGO_Q_WORKERS', 4)),
     'recycle': 500,
-    'timeout': 60,
-    'retry': 120,
+    # A harvest run makes several external calls (Overpass alone may take up to 90 s), so the
+    # task timeout is generous; retry must stay above timeout or the ORM broker re-delivers
+    # tasks that are still running.
+    'timeout': 300,
+    'retry': 360,
     'orm': 'default',  # Uses PostgreSQL ORM directly as the task broker
     'save_limit': 250,
     'queue_limit': 500,
@@ -188,6 +191,10 @@ OVERPASS_URL = os.environ.get('OVERPASS_URL', '')
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
 OSM_API_BASE = os.environ.get('OSM_API_BASE', 'https://api.openstreetmap.org/api/0.6')
 OHM_API_BASE = os.environ.get('OHM_API_BASE', 'https://www.openhistoricalmap.org/api/0.6')
+# Public OpenHistoricalMap Overpass endpoint (not a secret).
+OHM_OVERPASS_URL = os.environ.get(
+    'OHM_OVERPASS_URL', 'https://overpass-api.openhistoricalmap.org/api/interpreter'
+)
 WIKIMEDIA_COMMONS_API = os.environ.get('WIKIMEDIA_COMMONS_API', 'https://commons.wikimedia.org/w/api.php')
 WIKIDATA_API = os.environ.get('WIKIDATA_API', 'https://www.wikidata.org/w/api.php')
 PANORAMAX_API = os.environ.get('PANORAMAX_API', 'https://api.panoramax.xyz/api')
